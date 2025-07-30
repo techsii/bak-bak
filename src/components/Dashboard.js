@@ -124,17 +124,26 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
     const createPeerConnection = () => {
       const pc = new RTCPeerConnection(configuration);
 
+      pc.oniceconnectionstatechange = () => {
+        if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
+          disconnectFromCall();
+        }
+      };
+
       pc.onicecandidate = async (event) => {
-        if (event.candidate) {
-          await set(ref(db, `connections/${connectionId}/candidates/${auth.currentUser.uid}`), {
-            candidate: event.candidate.toJSON(),
-            timestamp: Date.now()
-          });
+        if (event.candidate && connectionId) {
+          try {
+            await set(ref(db, `connections/${connectionId}/candidates/${auth.currentUser.uid}/${Date.now()}`), 
+              event.candidate.toJSON()
+            );
+          } catch (err) {
+            console.error("Error sending ICE candidate:", err);
+          }
         }
       };
 
       pc.ontrack = (event) => {
-        if (remoteVideoRef.current) {
+        if (remoteVideoRef.current && event.streams[0]) {
           remoteVideoRef.current.srcObject = event.streams[0];
         }
       };
@@ -145,17 +154,27 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
     const findStranger = async () => {
       try {
         await disconnectFromCall();
-
         setSearching(true);
 
+        // Get media stream first
         const stream = await requestCameraAndMic();
-        localVideoRef.current.srcObject = stream;
-        peerConnectionRef.current = new RTCPeerConnection(configuration);
+        if (!stream) throw new Error("Failed to get media stream");
 
+        // Set up local video
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = stream;
+        }
+
+        // Create peer connection after getting stream
+        const pc = createPeerConnection();
+        peerConnectionRef.current = pc;
+
+        // Add tracks to peer connection
         stream.getTracks().forEach(track => {
-          peerConnectionRef.current.addTrack(track, stream);
+          pc.addTrack(track, stream);
         });
 
+        // Update availability status
         const myAvailabilityRef = ref(db, `available/${auth.currentUser.uid}`);
         await set(myAvailabilityRef, {
           userId: auth.currentUser.uid,
@@ -203,8 +222,9 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
         });
 
       } catch (err) {
-        console.error("Error setting up connection:", err);
-        setSearching(false);
+        console.error("Error in findStranger:", err);
+        await disconnectFromCall();
+        alert("Failed to start video chat. Please check your camera/microphone permissions.");
       }
     };
 
@@ -252,37 +272,55 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
     };
 
     const disconnectFromCall = useCallback(async () => {
-      if (window.availabilityListener) {
-        window.availabilityListener();
-        window.availabilityListener = null;
-      }
+      try {
+        if (window.availabilityListener) {
+          window.availabilityListener();
+          window.availabilityListener = null;
+        }
 
-      if (localVideoRef.current?.srcObject) {
-        localVideoRef.current.srcObject.getTracks().forEach(track => track.stop());
-        localVideoRef.current.srcObject = null;
-      }
+        // Stop all tracks in local stream
+        if (localVideoRef.current?.srcObject) {
+          const tracks = localVideoRef.current.srcObject.getTracks();
+          tracks.forEach(track => {
+            track.stop();
+            localVideoRef.current.srcObject.removeTrack(track);
+          });
+          localVideoRef.current.srcObject = null;
+        }
 
-      if (remoteVideoRef.current?.srcObject) {
-        remoteVideoRef.current.srcObject.getTracks().forEach(track => track.stop());
-        remoteVideoRef.current.srcObject = null;
-      }
+        // Stop all tracks in remote stream
+        if (remoteVideoRef.current?.srcObject) {
+          const tracks = remoteVideoRef.current.srcObject.getTracks();
+          tracks.forEach(track => {
+            track.stop();
+            remoteVideoRef.current.srcObject.removeTrack(track);
+          });
+          remoteVideoRef.current.srcObject = null;
+        }
 
-      if (peerConnectionRef.current) {
-        peerConnectionRef.current.close();
-        peerConnectionRef.current = null;
-      }
+        // Clean up peer connection
+        if (peerConnectionRef.current) {
+          peerConnectionRef.current.ontrack = null;
+          peerConnectionRef.current.onicecandidate = null;
+          peerConnectionRef.current.oniceconnectionstatechange = null;
+          peerConnectionRef.current.close();
+          peerConnectionRef.current = null;
+        }
 
-      if (auth.currentUser) {
-        await set(ref(db, `available/${auth.currentUser.uid}`), null);
-      }
+        // Clean up Firebase entries
+        if (auth.currentUser) {
+          await Promise.all([
+            set(ref(db, `available/${auth.currentUser.uid}`), null),
+            connectionId ? set(ref(db, `connections/${connectionId}`), null) : Promise.resolve()
+          ]);
+        }
 
-      if (connectionId) {
-        await set(ref(db, `connections/${connectionId}`), null);
+        setConnectionId(null);
+        setSearching(false);
+        setIsConnecting(false);
+      } catch (err) {
+        console.error("Error in disconnectFromCall:", err);
       }
-
-      setConnectionId(null);
-      setSearching(false);
-      setIsConnecting(false);
     }, [connectionId]);
 
     useEffect(() => {
