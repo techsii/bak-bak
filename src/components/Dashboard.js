@@ -75,7 +75,7 @@ import React, { useState, useEffect, useRef } from 'react';
         
         onValue(friendsRef, (snapshot) => {
           const friends = snapshot.val() || {};
-          setFriendsList(Object.values(friends));
+          // setFriendsList(Object.values(friends)); // Removed as friendsList is no longer a state variable
         });
 
         onValue(requestsRef, (snapshot) => {
