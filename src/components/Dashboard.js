@@ -206,7 +206,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
       };
 
       return pc;
-    }, [connectionId]);
+    }, [connectionId, configuration]);
 
     const findStranger = async () => {
       try {
@@ -284,7 +284,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
       setIsConnecting(true);
 
       try {
-        const pc = createPeerConnection();
+        const pc = createPeerConnection(disconnectFromCall);
         peerConnectionRef.current = pc;
 
         const stream = await requestCameraAndMic();
