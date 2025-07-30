@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-  import { useNavigate, Link } from 'react-router-dom';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+  import { Link } from 'react-router-dom';
   import { auth, db } from '../firebase/config';
   import { ref, get, set, onValue, update, serverTimestamp, onDisconnect } from 'firebase/database';
   import './Dashboard.css';
@@ -9,8 +9,7 @@ import React, { useState, useEffect, useRef } from 'react';
   function Dashboard() {
     const [userData, setUserData] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [chatChannel, setChatChannel] = useState(null);
-    const [searching, setSearching] = useState(false);
+  const [searching, setSearching] = useState(false);
     const [connectionId, setConnectionId] = useState(null);
     const [isConnecting, setIsConnecting] = useState(false);
     const [activeTab, setActiveTab] = useState('video');
@@ -22,11 +21,10 @@ import React, { useState, useEffect, useRef } from 'react';
     });
 
     const localVideoRef = useRef();
-    const remoteVideoRef = useRef();
-    const peerConnectionRef = useRef();
-    const navigate = useNavigate();
+  const remoteVideoRef = useRef();
+  const peerConnectionRef = useRef();
 
-    const configuration = {
+  const configuration = {
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' }
@@ -74,8 +72,9 @@ import React, { useState, useEffect, useRef } from 'react';
         const requestsRef = ref(db, `friendRequests/${auth.currentUser.uid}`);
         
         onValue(friendsRef, (snapshot) => {
-          const friends = snapshot.val() || {};
-          // setFriendsList(Object.values(friends)); // Removed as friendsList is no longer a state variable
+          // This onValue seems to be unused, the friends list is fetched in another useEffect.
+          // Keeping it here in case it's for a different purpose, but the 'friends' variable is unused.
+          snapshot.val();
         });
 
         onValue(requestsRef, (snapshot) => {
@@ -120,7 +119,7 @@ import React, { useState, useEffect, useRef } from 'react';
       });
 
       return () => unsubscribe();
-    }, [auth.currentUser]);
+    }, []);
 
     const createPeerConnection = () => {
       const pc = new RTCPeerConnection(configuration);
@@ -244,7 +243,6 @@ import React, { useState, useEffect, useRef } from 'react';
 
         setIsConnecting(false);
         setSearching(false);
-        setChatChannel(connectionId);
 
       } catch (err) {
         console.error("Error establishing connection:", err);
@@ -253,7 +251,7 @@ import React, { useState, useEffect, useRef } from 'react';
       }
     };
 
-    const disconnectFromCall = async () => {
+    const disconnectFromCall = useCallback(async () => {
       if (window.availabilityListener) {
         window.availabilityListener();
         window.availabilityListener = null;
@@ -283,16 +281,15 @@ import React, { useState, useEffect, useRef } from 'react';
       }
 
       setConnectionId(null);
-      setChatChannel(null);
       setSearching(false);
       setIsConnecting(false);
-    };
+    }, [connectionId]);
 
     useEffect(() => {
       return () => {
         disconnectFromCall();
       };
-    }, []);
+    }, [disconnectFromCall]);
 
     useEffect(() => {
       const userStatusRef = ref(db, `status/${auth.currentUser?.uid}`);
@@ -321,7 +318,7 @@ import React, { useState, useEffect, useRef } from 'react';
           });
         }
       };
-    }, [auth.currentUser]);
+    }, []);
 
     const handleAcceptRequest = async (requestId, fromUser) => {
       try {
