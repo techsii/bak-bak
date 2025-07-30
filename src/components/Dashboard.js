@@ -121,7 +121,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
       return () => unsubscribe();
     }, []);
 
-    const createPeerConnection = () => {
+    const createPeerConnection = useCallback(() => {
       const pc = new RTCPeerConnection(configuration);
 
       pc.oniceconnectionstatechange = () => {
@@ -151,7 +151,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
       };
 
       return pc;
-    };
+    }, [connectionId, disconnectFromCall]);
 
     const findStranger = async () => {
       try {
@@ -367,7 +367,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
         });
 
         return () => unsubscribe();
-    }, []);
+    }, [createPeerConnection]);
 
     useEffect(() => {
       const userStatusRef = ref(db, `status/${auth.currentUser?.uid}`);
