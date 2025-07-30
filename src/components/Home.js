@@ -207,10 +207,10 @@ function Home() {
 
         <div className="navbar-right">
           <ul className={`navbar-links ${isMenuOpen ? 'active' : ''}`}>
-            <li><a href="#features">Features</a></li>
-            <li><a href="#trusted">Community</a></li>
-            <li><a href="#testimonials">Reviews</a></li>
-            <li><a href="#cta">Start Chat</a></li>
+            <li><a href="/#features">Features</a></li>
+            <li><a href="/#trusted">Community</a></li>
+            <li><a href="/#testimonials">Reviews</a></li>
+            <li><a href="/#cta">Start Chat</a></li>
           </ul>
           {!isAuthenticated ? (
             <Link to="/login" className="navbar-login" aria-label="Login">Login</Link>
@@ -324,14 +324,14 @@ function Home() {
             <span className="logo-text">bakbak</span>
           </div>
           <div className="footer-links">
-            <a href="#features">Features</a>
-            <a href="#trusted">Community</a>
-            <a href="#">Privacy Policy</a>
+            <a href="/#features">Features</a>
+            <a href="/#trusted">Community</a>
+            <a href="/privacy-policy">Privacy Policy</a>
           </div>
           <div className="footer-social">
-            <a href="#" aria-label="Facebook">F</a>
-            <a href="#" aria-label="Twitter">T</a>
-            <a href="#" aria-label="Instagram">I</a>
+            <a href="https://www.facebook.com" aria-label="Facebook">F</a>
+            <a href="https://twitter.com" aria-label="Twitter">T</a>
+            <a href="https://www.instagram.com" aria-label="Instagram">I</a>
           </div>
         </div>
         <div className="footer-bottom">

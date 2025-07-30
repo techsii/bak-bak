@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
   import { useNavigate, Link } from 'react-router-dom';
   import { auth, db } from '../firebase/config';
-  import { ref, get, set, onValue, push, update, serverTimestamp, onDisconnect } from 'firebase/database';
-  import { signOut } from 'firebase/auth';
+  import { ref, get, set, onValue, update, serverTimestamp, onDisconnect } from 'firebase/database';
   import './Dashboard.css';
   import AccountIcon from './AccountIcon'; // adjust the path if it's in a different folder
   import TextChat from './TextChat';
@@ -11,13 +10,10 @@ import React, { useState, useEffect, useRef } from 'react';
     const [userData, setUserData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [chatChannel, setChatChannel] = useState(null);
-    const [isVideoActive, setIsVideoActive] = useState(false);
     const [searching, setSearching] = useState(false);
-    const [matchedUser, setMatchedUser] = useState(null);
     const [connectionId, setConnectionId] = useState(null);
     const [isConnecting, setIsConnecting] = useState(false);
     const [activeTab, setActiveTab] = useState('video');
-    const [friendsList, setFriendsList] = useState([]);
     const [pendingRequests, setPendingRequests] = useState([]);
     const [friendsData, setFriendsData] = useState({
       total: 0,
@@ -151,7 +147,6 @@ import React, { useState, useEffect, useRef } from 'react';
       try {
         await disconnectFromCall();
 
-        setIsVideoActive(true);
         setSearching(true);
 
         const stream = await requestCameraAndMic();
@@ -211,7 +206,6 @@ import React, { useState, useEffect, useRef } from 'react';
       } catch (err) {
         console.error("Error setting up connection:", err);
         setSearching(false);
-        setIsVideoActive(false);
       }
     };
 
@@ -292,7 +286,6 @@ import React, { useState, useEffect, useRef } from 'react';
       setChatChannel(null);
       setSearching(false);
       setIsConnecting(false);
-      setIsVideoActive(false);
     };
 
     useEffect(() => {
@@ -433,15 +426,15 @@ import React, { useState, useEffect, useRef } from 'react';
                 <Link to="/" className="nav-link"><span>⬅️</span> Back</Link>
               </li>
               <li className="nav-item">
-                <a href="#" className={`nav-link ${activeTab === 'video' ? 'active' : ''}`} 
+                <a href="/dashboard/video" className={`nav-link ${activeTab === 'video' ? 'active' : ''}`} 
                   onClick={() => setActiveTab('video')}><span>🎥</span> Video Chat</a>
               </li>
               <li className="nav-item">
-                <a href="#" className={`nav-link ${activeTab === 'text' ? 'active' : ''}`}
+                <a href="/dashboard/text" className={`nav-link ${activeTab === 'text' ? 'active' : ''}`}
                   onClick={() => setActiveTab('text')}><span>💭</span> Text Chat</a>
               </li>
               <li className="nav-item">
-                <a href="#" className={`nav-link ${activeTab === 'settings' ? 'active' : ''}`}
+                <a href="/dashboard/settings" className={`nav-link ${activeTab === 'settings' ? 'active' : ''}`}
                   onClick={() => setActiveTab('settings')}><span>⚙️</span> Settings</a>
               </li>
             </ul>
