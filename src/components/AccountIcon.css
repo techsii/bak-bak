@@ -1,0 +1,40 @@
+.account-icon-wrapper {
+  position: relative;
+  display: inline-block;
+  cursor: pointer;
+}
+
+.account-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  transition: transform 0.2s ease;
+}
+
+.account-icon:hover {
+  transform: scale(1.1);
+}
+
+.email-popup {
+  position: absolute;
+  top: 50%;
+  left: 110%;
+  transform: translateY(-50%);
+  white-space: nowrap;
+  background-color: #fffbe6;
+  color: #333;
+  padding: 6px 12px;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  font-size: 14px;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+  z-index: 100;
+}
+
+.account-icon-wrapper:hover .email-popup {
+  opacity: 1;
+  pointer-events: auto;
+}

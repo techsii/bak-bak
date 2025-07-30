@@ -1,0 +1,175 @@
+.notification-popup {
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  width: 360px;
+  background: #fff;
+  border-radius: 24px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  z-index: 1000;
+  animation: slideIn 0.3s ease-out forwards;
+  font-family: 'Inter', 'Segoe UI', sans-serif;
+  overflow: hidden;
+  border: 1px solid #e5e7eb;
+}
+
+.notification-popup.slide-out {
+  animation: slideOut 0.3s ease-in forwards;
+}
+
+.notification-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px;
+  background: #fafafa;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.notification-icon {
+  background: linear-gradient(145deg, #fffbe6, #fef3c7);
+  padding: 18px;
+  border-radius: 50%;
+  font-size: 32px;
+  color: #facc15;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.notification-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  background-color: #dc2626;
+  color: #fff;
+  font-size: 12px;
+  font-weight: bold;
+  border-radius: 9999px;
+  padding: 4px 7px;
+  box-shadow: 0 0 0 2px #fff;
+}
+
+.notification-header h4 {
+  margin: 12px 0 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.notification-content {
+  padding: 16px 24px;
+  font-size: 15px;
+  color: #4b5563;
+  text-align: center;
+}
+
+.notification-message {
+  margin: 0;
+  color: #6b7280;
+}
+
+.notification-actions {
+  display: flex;
+  justify-content: space-evenly;
+  gap: 12px;
+  padding: 16px 24px 24px;
+  background-color: #f9fafb;
+}
+
+.accept-btn,
+.decline-btn {
+  flex: 1;
+  padding: 10px 16px;
+  font-size: 15px;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.1s ease;
+  border: none;
+}
+
+.accept-btn {
+  background-color: #22c55e;
+  color: white;
+}
+
+.accept-btn:hover {
+  background-color: #16a34a;
+  transform: translateY(-1px);
+}
+
+.decline-btn {
+  background-color: #ef4444;
+  color: white;
+}
+
+.decline-btn:hover {
+  background-color: #dc2626;
+  transform: translateY(-1px);
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOut {
+  from {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+}
+
+/* Media Queries */
+
+@media (max-width: 768px) {
+  .notification-popup {
+    width: 90%;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+
+  .notification-header h4 {
+    font-size: 18px;
+  }
+
+  .notification-content {
+    font-size: 14px;
+  }
+
+  .accept-btn,
+  .decline-btn {
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 480px) {
+  .notification-popup {
+    width: 95%;
+    top: 16px;
+    border-radius: 16px;
+  }
+
+  .notification-actions {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .accept-btn,
+  .decline-btn {
+    width: 100%;
+    padding: 12px;
+  }
+}
