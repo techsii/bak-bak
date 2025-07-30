@@ -121,13 +121,68 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
       return () => unsubscribe();
     }, []);
 
-    const createPeerConnection = useCallback(() => {
+    const disconnectFromCall = useCallback(async () => {
+      try {
+        setSearching(false);
+        setIsConnecting(false);
+
+        // Clear availability listener
+        if (window.availabilityListener) {
+          window.availabilityListener();
+          window.availabilityListener = null;
+        }
+
+        // Stop local video tracks
+        if (localVideoRef.current?.srcObject) {
+          const tracks = localVideoRef.current.srcObject.getTracks();
+          tracks.forEach(track => {
+            track.stop();
+          });
+          localVideoRef.current.srcObject = null;
+        }
+
+        // Stop remote video tracks
+        if (remoteVideoRef.current?.srcObject) {
+          const tracks = remoteVideoRef.current.srcObject.getTracks();
+          tracks.forEach(track => {
+            track.stop();
+          });
+          remoteVideoRef.current.srcObject = null;
+        }
+
+        // Clean up peer connection
+        if (peerConnectionRef.current) {
+          peerConnectionRef.current.ontrack = null;
+          peerConnectionRef.current.onicecandidate = null;
+          peerConnectionRef.current.oniceconnectionstatechange = null;
+          peerConnectionRef.current.close();
+          peerConnectionRef.current = null;
+        }
+
+        // Clean up Firebase entries
+        if (auth.currentUser) {
+          const updates = {};
+          updates[`available/${auth.currentUser.uid}`] = null;
+          if (connectionId) {
+            updates[`connections/${connectionId}`] = null;
+          }
+          await update(ref(db), updates);
+        }
+
+        setConnectionId(null);
+
+      } catch (err) {
+        console.error("Error in disconnectFromCall:", err);
+      }
+    }, [connectionId]);
+
+    const createPeerConnection = useCallback((disconnectCb) => {
       const pc = new RTCPeerConnection(configuration);
 
       pc.oniceconnectionstatechange = () => {
         console.log('ICE connection state:', pc.iceConnectionState);
         if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
-          disconnectFromCall();
+          disconnectCb();
         }
       };
 
@@ -151,7 +206,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
       };
 
       return pc;
-    }, [connectionId, disconnectFromCall]);
+    }, [connectionId]);
 
     const findStranger = async () => {
       try {
@@ -168,7 +223,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
         }
 
         // Create peer connection
-        const pc = createPeerConnection();
+        const pc = createPeerConnection(disconnectFromCall);
         peerConnectionRef.current = pc;
 
         // Add tracks to peer connection
@@ -268,61 +323,6 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
       }
     };
 
-    const disconnectFromCall = useCallback(async () => {
-      try {
-        setSearching(false);
-        setIsConnecting(false);
-
-        // Clear availability listener
-        if (window.availabilityListener) {
-          window.availabilityListener();
-          window.availabilityListener = null;
-        }
-
-        // Stop local video tracks
-        if (localVideoRef.current?.srcObject) {
-          const tracks = localVideoRef.current.srcObject.getTracks();
-          tracks.forEach(track => {
-            track.stop();
-          });
-          localVideoRef.current.srcObject = null;
-        }
-
-        // Stop remote video tracks
-        if (remoteVideoRef.current?.srcObject) {
-          const tracks = remoteVideoRef.current.srcObject.getTracks();
-          tracks.forEach(track => {
-            track.stop();
-          });
-          remoteVideoRef.current.srcObject = null;
-        }
-
-        // Clean up peer connection
-        if (peerConnectionRef.current) {
-          peerConnectionRef.current.ontrack = null;
-          peerConnectionRef.current.onicecandidate = null;
-          peerConnectionRef.current.oniceconnectionstatechange = null;
-          peerConnectionRef.current.close();
-          peerConnectionRef.current = null;
-        }
-
-        // Clean up Firebase entries
-        if (auth.currentUser) {
-          const updates = {};
-          updates[`available/${auth.currentUser.uid}`] = null;
-          if (connectionId) {
-            updates[`connections/${connectionId}`] = null;
-          }
-          await update(ref(db), updates);
-        }
-
-        setConnectionId(null);
-
-      } catch (err) {
-        console.error("Error in disconnectFromCall:", err);
-      }
-    }, [connectionId]);
-
     useEffect(() => {
       return () => {
         disconnectFromCall();
@@ -338,7 +338,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
             for (const connId in connections) {
                 const connection = connections[connId];
                 if (connection.participants.includes(auth.currentUser.uid) && connection.offer) {
-                    const pc = createPeerConnection();
+                    const pc = createPeerConnection(disconnectFromCall);
                     peerConnectionRef.current = pc;
                     setConnectionId(connId);
 
