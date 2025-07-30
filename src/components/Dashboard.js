@@ -125,6 +125,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
       const pc = new RTCPeerConnection(configuration);
 
       pc.oniceconnectionstatechange = () => {
+        console.log('ICE connection state:', pc.iceConnectionState);
         if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
           disconnectFromCall();
         }
@@ -133,7 +134,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
       pc.onicecandidate = async (event) => {
         if (event.candidate && connectionId) {
           try {
-            await set(ref(db, `connections/${connectionId}/candidates/${auth.currentUser.uid}/${Date.now()}`), 
+            await set(ref(db, `connections/${connectionId}/candidates/${auth.currentUser.uid}`), 
               event.candidate.toJSON()
             );
           } catch (err) {
@@ -143,6 +144,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
       };
 
       pc.ontrack = (event) => {
+        console.log('Received remote track');
         if (remoteVideoRef.current && event.streams[0]) {
           remoteVideoRef.current.srcObject = event.streams[0];
         }
@@ -165,7 +167,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
           localVideoRef.current.srcObject = stream;
         }
 
-        // Create peer connection after getting stream
+        // Create peer connection
         const pc = createPeerConnection();
         peerConnectionRef.current = pc;
 
@@ -174,8 +176,10 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
           pc.addTrack(track, stream);
         });
 
-        // Update availability status
         const myAvailabilityRef = ref(db, `available/${auth.currentUser.uid}`);
+        const availableUsersRef = ref(db, 'available');
+
+        // Set availability
         await set(myAvailabilityRef, {
           userId: auth.currentUser.uid,
           timestamp: Date.now(),
@@ -183,14 +187,12 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
           matched: false
         });
 
-        const availableUsersRef = ref(db, 'available');
-
-        if (window.availabilityListener) {
-          window.availabilityListener();
-        }
-
-        window.availabilityListener = onValue(availableUsersRef, async (snapshot) => {
-          if (!searching) return;
+        // Listen for matches
+        const unsubscribe = onValue(availableUsersRef, async (snapshot) => {
+          if (!searching) {
+            unsubscribe();
+            return;
+          }
 
           const users = snapshot.val() || {};
           const availableUsers = Object.entries(users).filter(([uid, data]) => 
@@ -200,24 +202,19 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
           );
 
           if (availableUsers.length > 0) {
+            unsubscribe();
             const [partnerId] = availableUsers[Math.floor(Math.random() * availableUsers.length)];
-            const connectionId = [auth.currentUser.uid, partnerId].sort().join('_');
+            const newConnectionId = [auth.currentUser.uid, partnerId].sort().join('_');
+            setConnectionId(newConnectionId);
 
             const updates = {};
             updates[`available/${auth.currentUser.uid}/matched`] = true;
-            updates[`available/${auth.currentUser.uid}/connectionId`] = connectionId;
+            updates[`available/${auth.currentUser.uid}/connectionId`] = newConnectionId;
             updates[`available/${partnerId}/matched`] = true;
-            updates[`available/${partnerId}/connectionId`] = connectionId;
-
-            await set(ref(db, `connections/${connectionId}`), {
-              participants: [auth.currentUser.uid, partnerId],
-              started: Date.now()
-            });
+            updates[`available/${partnerId}/connectionId`] = newConnectionId;
 
             await update(ref(db), updates);
-
-            setConnectionId(connectionId);
-            initiateConnection(partnerId, connectionId);
+            await initiateConnection(partnerId, newConnectionId);
           }
         });
 
@@ -273,27 +270,29 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 
     const disconnectFromCall = useCallback(async () => {
       try {
+        setSearching(false);
+        setIsConnecting(false);
+
+        // Clear availability listener
         if (window.availabilityListener) {
           window.availabilityListener();
           window.availabilityListener = null;
         }
 
-        // Stop all tracks in local stream
+        // Stop local video tracks
         if (localVideoRef.current?.srcObject) {
           const tracks = localVideoRef.current.srcObject.getTracks();
           tracks.forEach(track => {
             track.stop();
-            localVideoRef.current.srcObject.removeTrack(track);
           });
           localVideoRef.current.srcObject = null;
         }
 
-        // Stop all tracks in remote stream
+        // Stop remote video tracks
         if (remoteVideoRef.current?.srcObject) {
           const tracks = remoteVideoRef.current.srcObject.getTracks();
           tracks.forEach(track => {
             track.stop();
-            remoteVideoRef.current.srcObject.removeTrack(track);
           });
           remoteVideoRef.current.srcObject = null;
         }
@@ -309,15 +308,16 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 
         // Clean up Firebase entries
         if (auth.currentUser) {
-          await Promise.all([
-            set(ref(db, `available/${auth.currentUser.uid}`), null),
-            connectionId ? set(ref(db, `connections/${connectionId}`), null) : Promise.resolve()
-          ]);
+          const updates = {};
+          updates[`available/${auth.currentUser.uid}`] = null;
+          if (connectionId) {
+            updates[`connections/${connectionId}`] = null;
+          }
+          await update(ref(db), updates);
         }
 
         setConnectionId(null);
-        setSearching(false);
-        setIsConnecting(false);
+
       } catch (err) {
         console.error("Error in disconnectFromCall:", err);
       }
@@ -328,6 +328,46 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
         disconnectFromCall();
       };
     }, [disconnectFromCall]);
+
+    useEffect(() => {
+        if (!auth.currentUser) return;
+
+        const connectionsRef = ref(db, 'connections');
+        const unsubscribe = onValue(connectionsRef, async (snapshot) => {
+            const connections = snapshot.val() || {};
+            for (const connId in connections) {
+                const connection = connections[connId];
+                if (connection.participants.includes(auth.currentUser.uid) && connection.offer) {
+                    const pc = createPeerConnection();
+                    peerConnectionRef.current = pc;
+                    setConnectionId(connId);
+
+                    const stream = await requestCameraAndMic();
+                    localVideoRef.current.srcObject = stream;
+                    stream.getTracks().forEach(track => pc.addTrack(track, stream));
+
+                    await pc.setRemoteDescription(new RTCSessionDescription(connection.offer));
+                    const answer = await pc.createAnswer();
+                    await pc.setLocalDescription(answer);
+
+                    await set(ref(db, `connections/${connId}/answer`), {
+                        sdp: answer.sdp,
+                        type: answer.type
+                    });
+
+                    const partnerId = connection.participants.find(p => p !== auth.currentUser.uid);
+                    onValue(ref(db, `connections/${connId}/candidates/${partnerId}`), (snapshot) => {
+                        const candidate = snapshot.val();
+                        if (candidate) {
+                            pc.addIceCandidate(new RTCIceCandidate(candidate));
+                        }
+                    });
+                }
+            }
+        });
+
+        return () => unsubscribe();
+    }, []);
 
     useEffect(() => {
       const userStatusRef = ref(db, `status/${auth.currentUser?.uid}`);
@@ -578,7 +618,6 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
       </div>
     );
   }
-
 
 
 
