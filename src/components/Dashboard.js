@@ -424,15 +424,15 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
               </li>
               <li className="nav-item">
                 <a href="/dashboard/video" className={`nav-link ${activeTab === 'video' ? 'active' : ''}`} 
-                  onClick={() => setActiveTab('video')}><span>🎥</span> Video Chat</a>
+                  onClick={(e) => { e.preventDefault(); setActiveTab('video'); }}><span>🎥</span> Video Chat</a>
               </li>
               <li className="nav-item">
                 <a href="/dashboard/text" className={`nav-link ${activeTab === 'text' ? 'active' : ''}`}
-                  onClick={() => setActiveTab('text')}><span>💭</span> Text Chat</a>
+                  onClick={(e) => { e.preventDefault(); setActiveTab('text'); }}><span>💭</span> Text Chat</a>
               </li>
               <li className="nav-item">
                 <a href="/dashboard/settings" className={`nav-link ${activeTab === 'settings' ? 'active' : ''}`}
-                  onClick={() => setActiveTab('settings')}><span>⚙️</span> Settings</a>
+                  onClick={(e) => { e.preventDefault(); setActiveTab('settings'); }}><span>⚙️</span> Settings</a>
               </li>
             </ul>
           </nav>
@@ -533,23 +533,9 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
                 )}
               </div>
             </div>
-          ) : activeTab === 'emails' ? (
-            <div className="email-dashboard-section">
-              <h2>Email Dashboard</h2>
-              <p>This section will display a summary of your emails or email-related activities.</p>
-              {/* You can add more content here, e.g., a list of recent emails, email statistics, etc. */}
-              <div className="email-list-placeholder">
-                <h3>Recent Emails (Placeholder)</h3>
-                <ul>
-                  <li><span className="email-sender">sender@example.com</span> - Subject: Important Update</li>
-                  <li><span className="email-sender">another@example.com</span> - Subject: Your Weekly Digest</li>
-                  <li><span className="email-sender">support@example.com</span> - Subject: Password Reset Request</li>
-                </ul>
-              </div>
-            </div>
-          ) : (
+          ) : activeTab === 'text' ? (
             <TextChat />
-          )}
+          ) : null}
         </main>
       </div>
     );
