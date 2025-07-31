@@ -1,7 +1,7 @@
 import React, {
   useState, useEffect, useRef, useCallback, useMemo,
 } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import {
   ref, get, set, push, onValue, update,
   serverTimestamp, onDisconnect,
@@ -12,14 +12,12 @@ import './Dashboard.css';
 // Icons and Sub-components
 import AccountIcon   from './AccountIcon';
 import TextChat      from './TextChat';
-import backIcon      from './back-icon.png';
-import chatIcon      from './chat-icon.png';
 import videoIcon     from './video-icon.png';
+import chatIcon      from './chat-icon.png';
 import settingsIcon  from './settings-icon.png';
 import signoutIcon   from './signout-icon.png';
 import liveIcon      from './live-icon.png';
 
-/* ───────────────────────── DASHBOARD COMPONENT ────────────────────────── */
 function Dashboard() {
   const navigate             = useNavigate();
   const [userData, setUserData]     = useState(null);
@@ -30,17 +28,29 @@ function Dashboard() {
   const [activeTab, setActiveTab]        = useState('video');
   const [pendingReqs, setPendingReqs]    = useState([]);
   const [friendsData, setFriendsData]    = useState({ total: 0, online: 0, list: [] });
+  const [onlineCount, setOnlineCount]    = useState(0);
+
   const localVideoRef           = useRef(null);
   const remoteVideoRef          = useRef(null);
   const peerConnectionRef       = useRef(null);
 
-  // ICE Server configuration (public Google STUN)
+  // ICE Server configuration
   const rtcConfig = useMemo(() => ({
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
     ],
   }), []);
+
+  // Count users online (real-time)
+  useEffect(() => {
+    const statusRef = ref(db, 'status');
+    return onValue(statusRef, snap => {
+      const all = snap.val() || {};
+      const count = Object.values(all).filter(u => u.online).length;
+      setOnlineCount(count);
+    });
+  }, []);
 
   // --- HELPER: Get camera & mic with error handling
   const requestCameraAndMic = async () => {
@@ -183,51 +193,51 @@ function Dashboard() {
     return () => { unsub(); set(statusRef, { online: false, lastSeen: serverTimestamp() }); };
   }, []);
 
-  // --- CORE LOGIC: ① Find Stranger
+  // --- CORE LOGIC: Find Stranger (only if 2+ available)
   const findStranger = async () => {
-    try {
-      await disconnectFromCall();
-      setSearching(true);
-      const stream = await requestCameraAndMic();
+    await disconnectFromCall();
+    setSearching(true);
 
-      if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+    const stream = await requestCameraAndMic();
+    if (localVideoRef.current) localVideoRef.current.srcObject = stream;
 
-      // Advertise availability
-      const myAvailRef = ref(db, `available/${auth.currentUser.uid}`);
-      await set(myAvailRef, { uid: auth.currentUser.uid, ts: Date.now(), matched: false });
+    // Mark yourself as available
+    const myAvailRef = ref(db, `available/${auth.currentUser.uid}`);
+    await set(myAvailRef, { uid: auth.currentUser.uid, ts: Date.now(), matched: false });
 
-      // Observe pool for partner
-      const availRef = ref(db, 'available');
-      const stop = onValue(availRef, async (snap) => {
-        const all = snap.val() || {};
-        const candidates = Object.entries(all).filter(([uid, data]) => (
-          uid !== auth.currentUser.uid && !data.matched
-        ));
-        if (candidates.length) {
-          stop(); // stop listening
-          const [partnerId] = candidates[Math.floor(Math.random() * candidates.length)];
-          const cid = [auth.currentUser.uid, partnerId].sort().join('_');
-          setConnectionId(cid);
+    // Wait for at least TWO available people before matching
+    const availRef = ref(db, 'available');
+    const stop = onValue(availRef, async (snap) => {
+      const all = snap.val() || {};
+      const candidateEntries = Object.entries(all).filter(([uid, data]) => (
+        !data.matched
+      ));
+      if (candidateEntries.length < 2) return; // Need at least two available!
 
-          // Mark both matched and include the participants field
-          await update(ref(db), {
-            [`available/${auth.currentUser.uid}/matched`]: true,
-            [`available/${auth.currentUser.uid}/connectionId`]: cid,
-            [`available/${partnerId}/matched`]            : true,
-            [`available/${partnerId}/connectionId`]       : cid,
-            [`connections/${cid}/participants`]           : [auth.currentUser.uid, partnerId],
-          });
-          initiateConnection(partnerId, cid, stream);
-        }
+      const myEntry = candidateEntries.find(([uid]) => uid === auth.currentUser.uid);
+      const others   = candidateEntries.filter(([uid]) => uid !== auth.currentUser.uid);
+
+      if (!others.length) return; // No one else to match with yet
+
+      stop();
+
+      const [partnerId] = others[Math.floor(Math.random() * others.length)];
+      const cid = [auth.currentUser.uid, partnerId].sort().join('_');
+      setConnectionId(cid);
+
+      await update(ref(db), {
+        [`available/${auth.currentUser.uid}/matched`]: true,
+        [`available/${auth.currentUser.uid}/connectionId`]: cid,
+        [`available/${partnerId}/matched`]            : true,
+        [`available/${partnerId}/connectionId`]       : cid,
+        [`connections/${cid}/participants`]           : [auth.currentUser.uid, partnerId],
       });
-      window.availStop = stop;
-    } catch (err) {
-      alert('Unable to start chat. Check permissions.');
-      disconnectFromCall();
-    }
+      initiateConnection(partnerId, cid, stream);
+    });
+    window.availStop = stop;
   };
 
-  // --- ② Outgoing Call: Create offer and set listeners
+  // --- Initiate outgoing connection
   const initiateConnection = async (partnerId, cid, localStream) => {
     setIsConnecting(true);
     try {
@@ -241,19 +251,17 @@ function Dashboard() {
         [`connections/${cid}/participants`]: [auth.currentUser.uid, partnerId],
       });
 
-      // Wait for answer
       onValue(ref(db, `connections/${cid}/answer`), async (snap) => {
         const ans = snap.val();
         if (ans && !pc.currentRemoteDescription) {
-          await pc.setRemoteDescription(new RTCSessionDescription(ans));
+          await pc.setRemoteDescription(new window.RTCSessionDescription(ans));
         }
       });
 
-      // ICE from callee
       onValue(ref(db, `connections/${cid}/candidates/${partnerId}`), (snap) => {
         const candList = snap.val();
         if (candList) Object.values(candList).forEach((c) => (
-          pc.addIceCandidate(new RTCIceCandidate(c)).catch(console.error)
+          pc.addIceCandidate(new window.RTCIceCandidate(c)).catch(console.error)
         ));
       });
 
@@ -265,7 +273,7 @@ function Dashboard() {
     }
   };
 
-  // --- ③ Passive: Listen for incoming connections/offers
+  // --- Passive: Listen for incoming connections/offers
   useEffect(() => {
     if (!auth.currentUser) return undefined;
     const connRef = ref(db, 'connections');
@@ -275,7 +283,6 @@ function Dashboard() {
         if (!connectionId && conn.offer && Array.isArray(conn.participants)
             && conn.participants.includes(auth.currentUser.uid)
             && !conn.answer) {
-          // Accept incoming: set up as callee
           const pc = createPeerConnection(disconnectFromCall);
           peerConnectionRef.current = pc;
           setConnectionId(cid);
@@ -284,7 +291,7 @@ function Dashboard() {
           if (localVideoRef.current) localVideoRef.current.srcObject = stream;
           stream.getTracks().forEach((t) => pc.addTrack(t, stream));
 
-          await pc.setRemoteDescription(new RTCSessionDescription(conn.offer));
+          await pc.setRemoteDescription(new window.RTCSessionDescription(conn.offer));
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
           await set(ref(db, `connections/${cid}/answer`), answer.toJSON());
@@ -294,7 +301,7 @@ function Dashboard() {
           onValue(ref(db, `connections/${cid}/candidates/${partnerId}`), (s) => {
             const cands = s.val();
             if (cands) Object.values(cands).forEach((c) => (
-              pc.addIceCandidate(new RTCIceCandidate(c)).catch(console.error)
+              pc.addIceCandidate(new window.RTCIceCandidate(c)).catch(console.error)
             ));
           });
         }
@@ -342,12 +349,11 @@ function Dashboard() {
     await update(ref(db), up);
   }
 
-  /* ────────────── RENDER ────────────── */
   if (loading) return <div className="dashboard-loading">Loading…</div>;
 
   return (
     <div className="dashboard-container">
-      {/* --- Sidebar: New style --- */}
+      {/* --- Sidebar --- */}
       <aside className="dashboard-sidebar">
         <div className="sidebar-logo">
           <img src={liveIcon} alt="Settings" className="nav-icon" />
@@ -358,8 +364,9 @@ function Dashboard() {
             <AccountIcon email={userData?.email || 'No email'} />
           </div>
         )}
-
-        {/* Optionally, place navigation/menu here: */}
+        <div className="online-count">
+          {onlineCount} user{onlineCount !== 1 && 's'} online
+        </div>
         <ul className="nav-menu">
           <li className="nav-item">
             <button className={`nav-link ${activeTab === 'video' ? 'active' : ''}`}
@@ -380,7 +387,6 @@ function Dashboard() {
             </button>
           </li>
         </ul>
-
         <div className="sidebar-footer">
           <button className="nav-link"
             onClick={async () => { await auth.signOut(); navigate('/'); }}>
@@ -410,8 +416,12 @@ function Dashboard() {
             </div>
             <div className="controls">
               {!searching && !connectionId && (
-                <button className="find-stranger-btn" onClick={findStranger}>
-                  Find Stranger
+                <button
+                  className="find-stranger-btn"
+                  onClick={findStranger}
+                  disabled={onlineCount < 2}
+                >
+                  {onlineCount < 2 ? 'Waiting for another user to come online...' : 'Find Stranger'}
                 </button>
               )}
               {searching && (
@@ -439,14 +449,12 @@ function Dashboard() {
             )}
           </section>
         )}
-
         {activeTab === 'text' && (
           <TextChat
             pendingRequests={pendingReqs}
             friendsData={friendsData}
           />
         )}
-
         {activeTab === 'settings' && (
           <SettingsPanel
             pendingReqs={pendingReqs}
