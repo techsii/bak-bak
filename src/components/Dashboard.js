@@ -1,510 +1,658 @@
-import React, {
-  useState, useEffect, useRef, useCallback, useMemo,
-} from 'react';
-import { useNavigate } from 'react-router-dom';
-import {
-  ref, get, set, push, onValue, update,
-  serverTimestamp, onDisconnect,
-} from 'firebase/database';
-import { auth, db } from '../firebase/config';
-import './Dashboard.css';
-
-// Icons and Sub-components
-import AccountIcon   from './AccountIcon';
-import TextChat      from './TextChat';
-import videoIcon     from './video-icon.png';
-import chatIcon      from './chat-icon.png';
-import settingsIcon  from './settings-icon.png';
-import signoutIcon   from './signout-icon.png';
-import liveIcon      from './live-icon.png';
-
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+  import { Link, useNavigate } from 'react-router-dom';
+  import { auth, db } from '../firebase/config';
+  import { ref, get, set, onValue, update, serverTimestamp, onDisconnect } from 'firebase/database';
+  import './Dashboard.css';
+  import AccountIcon from './AccountIcon'; // adjust the path if it's in a different folder
+  import TextChat from './TextChat';
+  import backIcon from './back-icon.png';
+  import chatIcon from './chat-icon.png';
+  import videoIcon from './video-icon.png';
+import settingsIcon from './settings-icon.png';
+import signoutIcon from './signout-icon.png';
+import liveIcon from './live-icon.png'; // Assuming you have a live icon for the live chat feature
 
 function Dashboard() {
   const navigate = useNavigate();
   const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
-  const [connectionId, setConnectionId] = useState(null);
-  const [isConnecting, setIsConnecting] = useState(false);
-  const [activeTab, setActiveTab] = useState('video');
-  const [pendingReqs, setPendingReqs] = useState([]);
-  const [friendsData, setFriendsData] = useState({ total: 0, online: 0, list: [] });
-  const [onlineCount, setOnlineCount] = useState(0);
-
-  const localVideoRef = useRef(null);
-  const remoteVideoRef = useRef(null);
-  const peerConnectionRef = useRef(null);
-
-  // ICE Server configuration
-  const rtcConfig = useMemo(() => ({
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-    ],
-  }), []);
-
-  // Count users online (real-time)
-  useEffect(() => {
-    const statusRef = ref(db, 'status');
-    return onValue(statusRef, snap => {
-      const all = snap.val() || {};
-      const count = Object.values(all).filter(u => u.online).length;
-      setOnlineCount(count);
+    const [connectionId, setConnectionId] = useState(null);
+    const [isConnecting, setIsConnecting] = useState(false);
+    const [activeTab, setActiveTab] = useState('video');
+    const [pendingRequests, setPendingRequests] = useState([]);
+    const [friendsData, setFriendsData] = useState({
+      total: 0,
+      online: 0,
+      list: []
     });
-  }, []);
 
-  // Fetch user profile on mount
-  useEffect(() => {
-    (async () => {
+    const localVideoRef = useRef();
+  const remoteVideoRef = useRef();
+  const peerConnectionRef = useRef();
+
+
+    const requestCameraAndMic = async () => {
       try {
-        const snap = await get(ref(db, `users/${auth.currentUser?.uid}`));
-        if (snap.exists()) setUserData(snap.val());
-      } finally { setLoading(false); }
-    })();
-  }, []);
-
-  // Friend requests listener
-  useEffect(() => {
-    if (!auth.currentUser) return undefined;
-    const reqRef = ref(db, `friendRequests/${auth.currentUser.uid}`);
-    return onValue(reqRef, (snap) => {
-      const all = snap.val() || {};
-      const pending = Object.entries(all).filter(([, v]) => v.status === 'pending')
-        .map(([id, v]) => ({ id, ...v }));
-      setPendingReqs(pending);
-    });
-  }, []);
-
-  // Friends list & online status
-  useEffect(() => {
-    if (!auth.currentUser) return undefined;
-    const friendsRef = ref(db, `friends/${auth.currentUser.uid}`);
-    return onValue(friendsRef, async (snap) => {
-      const friends = snap.val() || {};
-      const list = [];
-      let online = 0;
-      await Promise.all(Object.entries(friends).map(async ([fid, data]) => {
-        const sSnap = await get(ref(db, `status/${fid}`));
-        const isOnline = sSnap.exists() && sSnap.val().online;
-        if (isOnline) online += 1;
-        list.push({ ...data, id: fid, isOnline });
-      }));
-      list.sort((a, b) => b.addedAt - a.addedAt);
-      setFriendsData({ total: list.length, online, list });
-    });
-  }, []);
-
-  // Clean up on unmount
-  useEffect(() => () => { disconnectFromCall(); }, []);
-
-  // Mark presence in .info/connected
-  useEffect(() => {
-    if (!auth.currentUser) return undefined;
-    const statusRef = ref(db, `status/${auth.currentUser.uid}`);
-    const connRef   = ref(db, '.info/connected');
-    const unsub = onValue(connRef, (snap) => {
-      if (snap.val() === true) {
-        set(statusRef, { online: true, lastSeen: serverTimestamp() });
-        onDisconnect(statusRef).set({ online: false, lastSeen: serverTimestamp() });
-      }
-    });
-    return () => { unsub(); set(statusRef, { online: false, lastSeen: serverTimestamp() }); };
-  }, []);
-
-  // --- HELPER: Get camera & mic with error handling
-  const requestCameraAndMic = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      stream.getTracks().forEach((t) =>
-        t.addEventListener('ended', () => {
-          alert(`${t.kind} track ended – reconnecting…`);
-          disconnectFromCall();
-        })
-      );
-      return stream;
-    } catch (err) {
-      let msg = 'Failed to access camera/mic. ';
-      if (err.name === 'NotAllowedError') msg += 'Permission denied.';
-      else if (err.name === 'NotFoundError') msg += 'No device found.';
-      else msg += err.message;
-      alert(msg);
-      throw err;
-    }
-  };
-
-  // --- HELPER: Create RTCPeerConnection instance
-  const createPeerConnection = useCallback((disconnectCb) => {
-    const pc = new RTCPeerConnection(rtcConfig);
-    pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'connected') setIsConnecting(false);
-      if (['failed', 'disconnected', 'closed'].includes(pc.connectionState)) {
-        disconnectCb();
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        return stream;
+      } catch (error) {
+        console.error("Permission denied for camera/microphone", error);
+        alert("Please allow access to your camera and microphone in your device/browser settings.");
+        throw error;
       }
     };
-    pc.oniceconnectionstatechange = () => {
-      if (pc.iceConnectionState === 'failed') disconnectCb();
-    };
-    pc.ontrack = (e) => {
-      if (remoteVideoRef.current && e.streams[0]) {
-        remoteVideoRef.current.srcObject = e.streams[0];
-      }
-    };
-    pc.onicecandidate = async (e) => {
-      if (e.candidate && connectionId) {
+
+    useEffect(() => {
+      const fetchUserData = async () => {
         try {
-          await push(
-            ref(db, `connections/${connectionId}/candidates/${auth.currentUser.uid}`),
-            e.candidate.toJSON(),
-          );
-        } catch (err) {
-          console.error('Error sending ICE candidate:', err);
+          const user = auth.currentUser;
+          if (!user) return;
+
+          const userRef = ref(db, `users/${user.uid}`);
+          const snapshot = await get(userRef);
+
+          if (snapshot.exists()) {
+            setUserData(snapshot.val());
+          }
+        } catch (error) {
+          console.error('Error fetching user data:', error);
+        } finally {
+          setLoading(false);
         }
+      };
+
+      fetchUserData();
+    }, []);
+
+    useEffect(() => {
+      const fetchFriendsAndRequests = async () => {
+        if (!auth.currentUser) return;
+        
+        const friendsRef = ref(db, `friends/${auth.currentUser.uid}`);
+        const requestsRef = ref(db, `friendRequests/${auth.currentUser.uid}`);
+        
+        onValue(friendsRef, (snapshot) => {
+          // This onValue seems to be unused, the friends list is fetched in another useEffect.
+          // Keeping it here in case it's for a different purpose, but the 'friends' variable is unused.
+          snapshot.val();
+        });
+
+        onValue(requestsRef, (snapshot) => {
+          const requests = snapshot.val() || {};
+          const pending = Object.values(requests).filter(req => req.status === 'pending');
+          setPendingRequests(pending);
+        });
+      };
+
+      fetchFriendsAndRequests();
+    }, []);
+
+    useEffect(() => {
+      if (!auth.currentUser) return;
+
+      const friendsRef = ref(db, `friends/${auth.currentUser.uid}`);
+      const unsubscribe = onValue(friendsRef, async (snapshot) => {
+        const friends = snapshot.val() || {};
+        const friendsList = [];
+        let onlineCount = 0;
+
+        // Fetch each friend's status
+        for (const [friendId, friendData] of Object.entries(friends)) {
+          const statusRef = ref(db, `status/${friendId}`);
+          const statusSnap = await get(statusRef);
+          const isOnline = statusSnap.exists() && statusSnap.val().online;
+          
+          friendsList.push({
+            ...friendData,
+            id: friendId,
+            isOnline
+          });
+
+          if (isOnline) onlineCount++;
+        }
+
+        setFriendsData({
+          total: friendsList.length,
+          online: onlineCount,
+          list: friendsList.sort((a, b) => b.addedAt - a.addedAt)
+        });
+      });
+
+      return () => unsubscribe();
+    }, []);
+
+    const disconnectFromCall = useCallback(async () => {
+      try {
+        setSearching(false);
+        setIsConnecting(false);
+
+        // Clear availability listener
+        if (window.availabilityListener) {
+          window.availabilityListener();
+          window.availabilityListener = null;
+        }
+
+        // Stop local video tracks
+        if (localVideoRef.current?.srcObject) {
+          const tracks = localVideoRef.current.srcObject.getTracks();
+          tracks.forEach(track => {
+            track.stop();
+          });
+          localVideoRef.current.srcObject = null;
+        }
+
+        // Stop remote video tracks
+        if (remoteVideoRef.current?.srcObject) {
+          const tracks = remoteVideoRef.current.srcObject.getTracks();
+          tracks.forEach(track => {
+            track.stop();
+          });
+          remoteVideoRef.current.srcObject = null;
+        }
+
+        // Clean up peer connection
+        if (peerConnectionRef.current) {
+          peerConnectionRef.current.ontrack = null;
+          peerConnectionRef.current.onicecandidate = null;
+          peerConnectionRef.current.oniceconnectionstatechange = null;
+          peerConnectionRef.current.close();
+          peerConnectionRef.current = null;
+        }
+
+        // Clean up Firebase entries
+        if (auth.currentUser) {
+          const updates = {};
+          updates[`available/${auth.currentUser.uid}`] = null;
+          if (connectionId) {
+            updates[`connections/${connectionId}`] = null;
+          }
+          await update(ref(db), updates);
+        }
+
+        setConnectionId(null);
+
+      } catch (err) {
+        console.error("Error in disconnectFromCall:", err);
+      }
+    }, [connectionId]);
+
+    const createPeerConnection = useCallback((disconnectCb) => {
+      const configuration = {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' }
+        ]
+      };
+      const pc = new RTCPeerConnection(configuration);
+
+      pc.oniceconnectionstatechange = () => {
+        console.log('ICE connection state:', pc.iceConnectionState);
+        if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
+          disconnectCb();
+        }
+      };
+
+      pc.onicecandidate = async (event) => {
+        if (event.candidate && connectionId) {
+          try {
+            await set(ref(db, `connections/${connectionId}/candidates/${auth.currentUser.uid}`), 
+              event.candidate.toJSON()
+            );
+          } catch (err) {
+            console.error("Error sending ICE candidate:", err);
+          }
+        }
+      };
+
+      pc.ontrack = (event) => {
+        console.log('Received remote track');
+        if (remoteVideoRef.current && event.streams[0]) {
+          remoteVideoRef.current.srcObject = event.streams[0];
+        }
+      };
+
+      return pc;
+    }, [connectionId]);
+
+    const findStranger = async () => {
+      try {
+        await disconnectFromCall();
+        setSearching(true);
+
+        // Get media stream first
+        const stream = await requestCameraAndMic();
+        if (!stream) throw new Error("Failed to get media stream");
+
+        // Set up local video
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = stream;
+        }
+
+        // Create peer connection
+        const pc = createPeerConnection(disconnectFromCall);
+        peerConnectionRef.current = pc;
+
+        // Add tracks to peer connection
+        stream.getTracks().forEach(track => {
+          pc.addTrack(track, stream);
+        });
+
+        const myAvailabilityRef = ref(db, `available/${auth.currentUser.uid}`);
+        const availableUsersRef = ref(db, 'available');
+
+        // Set availability
+        await set(myAvailabilityRef, {
+          userId: auth.currentUser.uid,
+          timestamp: Date.now(),
+          seeking: true,
+          matched: false
+        });
+
+        // Listen for matches
+        const unsubscribe = onValue(availableUsersRef, async (snapshot) => {
+          if (!searching) {
+            unsubscribe();
+            return;
+          }
+
+          const users = snapshot.val() || {};
+          const availableUsers = Object.entries(users).filter(([uid, data]) => 
+            uid !== auth.currentUser.uid && 
+            data.seeking && 
+            !data.matched
+          );
+
+          if (availableUsers.length > 0) {
+            unsubscribe();
+            const [partnerId] = availableUsers[Math.floor(Math.random() * availableUsers.length)];
+            const newConnectionId = [auth.currentUser.uid, partnerId].sort().join('_');
+            setConnectionId(newConnectionId);
+
+            const updates = {};
+            updates[`available/${auth.currentUser.uid}/matched`] = true;
+            updates[`available/${auth.currentUser.uid}/connectionId`] = newConnectionId;
+            updates[`available/${partnerId}/matched`] = true;
+            updates[`available/${partnerId}/connectionId`] = newConnectionId;
+
+            await update(ref(db), updates);
+            await initiateConnection(partnerId, newConnectionId);
+          }
+        });
+
+      } catch (err) {
+        console.error("Error in findStranger:", err);
+        await disconnectFromCall();
+        alert("Failed to start video chat. Please check your camera/microphone permissions.");
       }
     };
-    return pc;
-  }, [connectionId, rtcConfig]);
 
-  // --- Disconnect / Cleanup
-  const disconnectFromCall = useCallback(async () => {
-    try {
-      setSearching(false);
-      setIsConnecting(false);
+    const initiateConnection = async (partnerId, connectionId) => {
+      setIsConnecting(true);
 
-      if (peerConnectionRef.current) {
-        peerConnectionRef.current.ontrack = null;
-        peerConnectionRef.current.close();
-        peerConnectionRef.current = null;
+      try {
+        const pc = createPeerConnection(disconnectFromCall);
+        peerConnectionRef.current = pc;
+
+        const stream = await requestCameraAndMic();
+        localVideoRef.current.srcObject = stream;
+        stream.getTracks().forEach(track => pc.addTrack(track, stream));
+
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+
+        await set(ref(db, `connections/${connectionId}/offer`), {
+          sdp: offer.sdp,
+          type: offer.type
+        });
+
+        onValue(ref(db, `connections/${connectionId}/answer`), async (snapshot) => {
+          const answer = snapshot.val();
+          if (answer && !pc.currentRemoteDescription) {
+            await pc.setRemoteDescription(new RTCSessionDescription(answer));
+          }
+        });
+
+        onValue(ref(db, `connections/${connectionId}/candidates/${partnerId}`), (snapshot) => {
+          const candidate = snapshot.val();
+          if (candidate) {
+            pc.addIceCandidate(new RTCIceCandidate(candidate));
+          }
+        });
+
+        setIsConnecting(false);
+        setSearching(false);
+
+      } catch (err) {
+        console.error("Error establishing connection:", err);
+        setIsConnecting(false);
+        setSearching(false);
       }
-      [localVideoRef, remoteVideoRef].forEach((vRef) => {
-        if (vRef.current?.srcObject) {
-          vRef.current.srcObject.getTracks().forEach((t) => t.stop());
-          vRef.current.srcObject = null;
-        }
-      });
+    };
 
-      if (auth.currentUser) {
-        const updates = { [`available/${auth.currentUser.uid}`]: null };
-        if (connectionId) updates[`connections/${connectionId}`] = null;
-        await update(ref(db), updates);
-      }
-      setConnectionId(null);
-    } catch (err) { console.error('disconnectFromCall error:', err); }
-  }, [connectionId]);
+    useEffect(() => {
+      return () => {
+        disconnectFromCall();
+      };
+    }, []);
 
-  // --- Find Stranger with timeout
-  const findStranger = async () => {
-    await disconnectFromCall();
-    setSearching(true);
+    useEffect(() => {
+        if (!auth.currentUser) return;
 
-    const stream = await requestCameraAndMic();
-    if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+        const connectionsRef = ref(db, 'connections');
+        const unsubscribe = onValue(connectionsRef, async (snapshot) => {
+            const connections = snapshot.val() || {};
+            for (const connId in connections) {
+                const connection = connections[connId];
+                if (connection.participants.includes(auth.currentUser.uid) && connection.offer) {
+                    const pc = createPeerConnection(disconnectFromCall);
+                    peerConnectionRef.current = pc;
+                    setConnectionId(connId);
 
-    // Mark yourself as available
-    const myAvailRef = ref(db, `available/${auth.currentUser.uid}`);
-    await set(myAvailRef, { uid: auth.currentUser.uid, ts: Date.now(), matched: false });
+                    const stream = await requestCameraAndMic();
+                    localVideoRef.current.srcObject = stream;
+                    stream.getTracks().forEach(track => pc.addTrack(track, stream));
 
-    // Timeout: abort after 30 seconds if no match
-    let timedOut = false;
-    const TIMEOUT_MS = 30000;
-    let timeoutId = setTimeout(() => {
-      timedOut = true;
-      setSearching(false);
-      disconnectFromCall();
-      alert('No match found. Try again later!');
-    }, TIMEOUT_MS);
+                    await pc.setRemoteDescription(new RTCSessionDescription(connection.offer));
+                    const answer = await pc.createAnswer();
+                    await pc.setLocalDescription(answer);
 
-    // Matchmaking
-    const availRef = ref(db, 'available');
-    const stop = onValue(availRef, async (snap) => {
-      if (timedOut) return;
+                    await set(ref(db, `connections/${connId}/answer`), {
+                        sdp: answer.sdp,
+                        type: answer.type
+                    });
 
-      const all = snap.val() || {};
-      const candidateEntries = Object.entries(all).filter(([uid, data]) => !data.matched);
-      if (candidateEntries.length < 2) return;
-      const others = candidateEntries.filter(([uid]) => uid !== auth.currentUser.uid);
-      if (!others.length) return;
+                    const partnerId = connection.participants.find(p => p !== auth.currentUser.uid);
+                    onValue(ref(db, `connections/${connId}/candidates/${partnerId}`), (snapshot) => {
+                        const candidate = snapshot.val();
+                        if (candidate) {
+                            pc.addIceCandidate(new RTCIceCandidate(candidate));
+                        }
+                    });
+                }
+            }
+        });
 
-      stop();
-      clearTimeout(timeoutId);
-      setSearching(false);
+        return () => unsubscribe();
+    }, [createPeerConnection]);
 
-      const [partnerId] = others[Math.floor(Math.random() * others.length)];
-      const cid = [auth.currentUser.uid, partnerId].sort().join('_');
-      setConnectionId(cid);
+    useEffect(() => {
+      const userStatusRef = ref(db, `status/${auth.currentUser?.uid}`);
 
-      await update(ref(db), {
-        [`available/${auth.currentUser.uid}/matched`]: true,
-        [`available/${auth.currentUser.uid}/connectionId`]: cid,
-        [`available/${partnerId}/matched`]            : true,
-        [`available/${partnerId}/connectionId`]       : cid,
-        [`connections/${cid}/participants`]           : [auth.currentUser.uid, partnerId],
-      });
-      initiateConnection(partnerId, cid, stream);
-    });
-    window.availStop = stop;
-  };
+      const connectedRef = ref(db, '.info/connected');
+      const unsubscribe = onValue(connectedRef, (snap) => {
+        if (snap.val() === true && auth.currentUser) {
+          set(userStatusRef, {
+            online: true,
+            lastSeen: serverTimestamp()
+          });
 
-  // --- Initiate outgoing connection
-  const initiateConnection = async (partnerId, cid, localStream) => {
-    setIsConnecting(true);
-    try {
-      const pc = createPeerConnection(disconnectFromCall);
-      peerConnectionRef.current = pc;
-      localStream.getTracks().forEach((t) => pc.addTrack(t, localStream));
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      await update(ref(db), {
-        [`connections/${cid}/offer`]       : offer.toJSON(),
-        [`connections/${cid}/participants`]: [auth.currentUser.uid, partnerId],
-      });
-
-      onValue(ref(db, `connections/${cid}/answer`), async (snap) => {
-        const ans = snap.val();
-        if (ans && !pc.currentRemoteDescription) {
-          await pc.setRemoteDescription(new window.RTCSessionDescription(ans));
-        }
-      });
-
-      onValue(ref(db, `connections/${cid}/candidates/${partnerId}`), (snap) => {
-        const candList = snap.val();
-        if (candList) Object.values(candList).forEach((c) => (
-          pc.addIceCandidate(new window.RTCIceCandidate(c)).catch(console.error)
-        ));
-      });
-
-      setIsConnecting(false);
-    } catch (err) {
-      setIsConnecting(false);
-      disconnectFromCall();
-    }
-  };
-
-  // --- Passive: Listen for incoming connections/offers
-  useEffect(() => {
-    if (!auth.currentUser) return undefined;
-    const connRef = ref(db, 'connections');
-    return onValue(connRef, async (snap) => {
-      const all = snap.val() || {};
-      for (const [cid, conn] of Object.entries(all)) {
-        if (!connectionId && conn.offer && Array.isArray(conn.participants)
-            && conn.participants.includes(auth.currentUser.uid)
-            && !conn.answer) {
-          const pc = createPeerConnection(disconnectFromCall);
-          peerConnectionRef.current = pc;
-          setConnectionId(cid);
-
-          const stream = await requestCameraAndMic();
-          if (localVideoRef.current) localVideoRef.current.srcObject = stream;
-          stream.getTracks().forEach((t) => pc.addTrack(t, stream));
-
-          await pc.setRemoteDescription(new window.RTCSessionDescription(conn.offer));
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          await set(ref(db, `connections/${cid}/answer`), answer.toJSON());
-
-          const partnerId = conn.participants.find((p) => p !== auth.currentUser.uid);
-
-          onValue(ref(db, `connections/${cid}/candidates/${partnerId}`), (s) => {
-            const cands = s.val();
-            if (cands) Object.values(cands).forEach((c) => (
-              pc.addIceCandidate(new window.RTCIceCandidate(c)).catch(console.error)
-            ));
+          onDisconnect(userStatusRef).set({
+            online: false,
+            lastSeen: serverTimestamp()
           });
         }
+      });
+
+      return () => {
+        unsubscribe();
+        if (auth.currentUser) {
+          set(userStatusRef, {
+            online: false,
+            lastSeen: serverTimestamp()
+          });
+        }
+      };
+    }, []);
+
+    const handleAcceptRequest = async (requestId, fromUser) => {
+      try {
+        const updates = {};
+        
+        // Remove all friend request entries
+        updates[`friendRequests/${auth.currentUser.uid}/${requestId}`] = null;
+        updates[`friendRequests/${fromUser.uid}/${auth.currentUser.uid}`] = null;
+        
+        // Add to both users' friends lists
+        updates[`friends/${auth.currentUser.uid}/${fromUser.uid}`] = {
+          uid: fromUser.uid,
+          email: fromUser.email,
+          addedAt: Date.now()
+        };
+        
+        updates[`friends/${fromUser.uid}/${auth.currentUser.uid}`] = {
+          uid: auth.currentUser.uid,
+          email: auth.currentUser.email,
+          addedAt: Date.now()
+        };
+
+        // Remove any notifications
+        updates[`notifications/${auth.currentUser.uid}/${requestId}`] = null;
+        updates[`notifications/${fromUser.uid}/${auth.currentUser.uid}`] = null;
+
+        await update(ref(db), updates);
+        
+        // Update local state to remove the accepted request
+        setPendingRequests(prev => prev.filter(req => req.id !== requestId));
+        
+        alert('Friend request accepted! Added to your friends list.');
+      } catch (error) {
+        console.error('Error accepting friend request:', error);
+        alert('Failed to accept request. Please try again.');
       }
-    });
-  }, [connectionId, createPeerConnection]);
-
-  // --- FRIENDS/REQUESTS HANDLERS (unchanged)
-  async function handleAccept(reqId, fromUser) {
-    const up = {
-      [`friendRequests/${auth.currentUser.uid}/${reqId}`]          : null,
-      [`friendRequests/${fromUser.uid}/${auth.currentUser.uid}`]   : null,
-      [`friends/${auth.currentUser.uid}/${fromUser.uid}`]          : {
-        uid: fromUser.uid, email: fromUser.email, addedAt: Date.now(),
-      },
-      [`friends/${fromUser.uid}/${auth.currentUser.uid}`]          : {
-        uid: auth.currentUser.uid, email: auth.currentUser.email, addedAt: Date.now(),
-      },
-      [`notifications/${auth.currentUser.uid}/${reqId}`]           : null,
-      [`notifications/${fromUser.uid}/${auth.currentUser.uid}`]    : null,
     };
-    await update(ref(db), up);
-    alert('Friend added!');
-  }
 
-  async function handleDecline(reqId, fromUid) {
-    const up = {
-      [`friendRequests/${auth.currentUser.uid}/${reqId}`]          : null,
-      [`friendRequests/${fromUid}/${auth.currentUser.uid}`]        : null,
-      [`notifications/${auth.currentUser.uid}/${reqId}`]           : null,
-      [`notifications/${fromUid}/${auth.currentUser.uid}`]         : null,
+    const handleDeclineRequest = async (requestId, fromUserId) => {
+      try {
+        // Remove request from all relevant locations
+        const updates = {};
+        // Remove from current user's requests
+        updates[`friendRequests/${auth.currentUser.uid}/${requestId}`] = null;
+        // Remove from sender's requests
+        updates[`friendRequests/${fromUserId}/${auth.currentUser.uid}`] = null;
+        // Remove from notifications if exists
+        updates[`notifications/${auth.currentUser.uid}/${requestId}`] = null;
+        updates[`notifications/${fromUserId}/${auth.currentUser.uid}`] = null;
+        
+        await update(ref(db), updates);
+        
+        // Update local state
+        setPendingRequests(prev => prev.filter(req => req.id !== requestId));
+        
+        alert('Friend request declined');
+      } catch (error) {
+        console.error('Error declining friend request:', error);
+        alert('Failed to decline request. Please try again.');
+      }
     };
-    await update(ref(db), up);
-    alert('Request declined.');
-  }
 
-  async function handleRemoveFriend(fid, email) {
-    if (!window.confirm(`Remove ${email}?`)) return;
-    const up = {
-      [`friends/${auth.currentUser.uid}/${fid}`]                   : null,
-      [`friends/${fid}/${auth.currentUser.uid}`]                   : null,
-      [`friendRequests/${auth.currentUser.uid}/${fid}`]            : null,
-      [`friendRequests/${fid}/${auth.currentUser.uid}`]            : null,
+    const handleRemoveFriend = async (friendId, friendEmail) => {
+      try {
+        const confirmed = window.confirm(`Are you sure you want to remove ${friendEmail} from your friends list?`);
+        if (!confirmed) return;
+
+        const updates = {};
+        updates[`friends/${auth.currentUser.uid}/${friendId}`] = null;
+        updates[`friends/${friendId}/${auth.currentUser.uid}`] = null;
+        // Also remove any pending/accepted friend requests between these two users
+        updates[`friendRequests/${auth.currentUser.uid}/${friendId}`] = null;
+        updates[`friendRequests/${friendId}/${auth.currentUser.uid}`] = null;
+        
+        await update(ref(db), updates);
+      } catch (error) {
+        console.error('Error removing friend:', error);
+        alert('Failed to remove friend. Please try again.');
+      }
     };
-    await update(ref(db), up);
-  }
 
-  if (loading) return <div className="dashboard-loading">Loading…</div>;
+    const handleSignOut = async () => {
+      try {
+        await auth.signOut();
+        navigate('/');
+      } catch (error) {
+        console.error('Error signing out:', error);
+      }
+    };
 
-  return (
-    <div className="dashboard-container">
-      <aside className="dashboard-sidebar">
-        <div className="sidebar-logo">
-          <img src={liveIcon} alt="Settings" className="nav-icon" />
-          <span>RandomChat</span>
-        </div>
-        {userData && (
-          <div className="user-profile-section">
-            <AccountIcon email={userData?.email || 'No email'} />
+    if (loading) return <div className="dashboard-loading">Loading...</div>;
+    if (!userData) return <div className="dashboard-error">No user data found</div>;
+
+    return (
+      <div className="dashboard-container">
+        <aside className="dashboard-sidebar">
+          <div className="sidebar-logo">
+            <img src={liveIcon} alt="Settings" className="nav-icon" />
+            <span>RandomChat</span>
           </div>
-        )}
-        <div className="online-count">
-          {onlineCount} user{onlineCount !== 1 && 's'} online
-        </div>
-        <ul className="nav-menu">
-          <li className="nav-item">
-            <button className={`nav-link ${activeTab === 'video' ? 'active' : ''}`}
-              onClick={() => setActiveTab('video')}>
-              <img src={videoIcon} alt="" className="nav-icon" /> Video Chat
+         {userData && (
+  <div className="user-profile-section">
+    <AccountIcon email={userData?.email || 'No email'} />
+  </div>
+)}
+
+
+          <nav>
+            <ul className="nav-menu">
+              <li className="nav-item">
+                <Link to="/" className="nav-link">
+                  <img src={backIcon} alt="Back" className="nav-icon" />
+                  <span>Back</span>
+                </Link>
+              </li>
+              <li className="nav-item">
+                <a href="/dashboard/video" className={`nav-link ${activeTab === 'video' ? 'active' : ''}`} 
+                  onClick={(e) => { e.preventDefault(); setActiveTab('video'); }}>
+                  <img src={videoIcon} alt="Video Chat" className="nav-icon" />
+                  <span>Video Chat</span>
+                </a>
+              </li>
+              <li className="nav-item">
+                <a href="/dashboard/text" className={`nav-link ${activeTab === 'text' ? 'active' : ''}`}
+                  onClick={(e) => { e.preventDefault(); setActiveTab('text'); }}>
+                  <img src={chatIcon} alt="Text Chat" className="nav-icon" />
+                  <span>Text Chat</span>
+                </a>
+              </li>
+              <li className="nav-item">
+                <a href="/dashboard/settings" className={`nav-link ${activeTab === 'settings' ? 'active' : ''}`}
+                  onClick={(e) => { e.preventDefault(); setActiveTab('settings'); }}>
+                  <img src={settingsIcon} alt="Settings" className="nav-icon" />
+                  <span>Settings</span>
+                </a>
+              </li>
+            </ul>
+          </nav>
+          <div className="sidebar-footer">
+            <button onClick={handleSignOut} className="nav-link">
+              <img src={signoutIcon} alt="Sign Out" className="nav-icon" />
+              <span>Sign Out</span>
             </button>
-          </li>
-          <li className="nav-item">
-            <button className={`nav-link ${activeTab === 'text' ? 'active' : ''}`}
-              onClick={() => setActiveTab('text')}>
-              <img src={chatIcon} alt="" className="nav-icon" /> Text Chat
-            </button>
-          </li>
-          <li className="nav-item">
-            <button className={`nav-link ${activeTab === 'settings' ? 'active' : ''}`}
-              onClick={() => setActiveTab('settings')}>
-              <img src={settingsIcon} alt="" className="nav-icon" /> Settings
-            </button>
-          </li>
-        </ul>
-        <div className="sidebar-footer">
-          <button className="nav-link"
-            onClick={async () => { await auth.signOut(); navigate('/'); }}>
-            <img src={signoutIcon} alt="" className="nav-icon" /> Sign Out
-          </button>
-        </div>
-      </aside>
-      <main className="main-content">
-        {activeTab === 'video' && (
-          <section className="video-chat-section">
-            <h2 style={{ color: '#fff', marginBottom: '1rem' }}>Random Stranger Video Chat</h2>
-            <div className="video-container">
-              <video
-                ref={localVideoRef}
-                autoPlay
-                playsInline
-                muted
-                className="local-video"
-              />
-              <video
-                ref={remoteVideoRef}
-                autoPlay
-                playsInline
-                className="remote-video"
-              />
-            </div>
-            <div className="controls">
-              {!searching && !connectionId && (
-                <button
-                  className="find-stranger-btn"
-                  onClick={findStranger}
-                  disabled={onlineCount < 2}
-                >
-                  {onlineCount < 2 ? 'Waiting for another user to come online...' : 'Find Stranger'}
-                </button>
-              )}
-              {searching && (
-                <button className="cancel-search-btn"
-                  onClick={() => disconnectFromCall()}>
-                  Cancel Search
-                </button>
-              )}
-              {connectionId && (
-                <button className="disconnect-btn"
-                  onClick={() => disconnectFromCall()}>
-                  Disconnect
-                </button>
-              )}
-            </div>
-            {isConnecting && (
-              <p style={{ color: '#fff', textAlign: 'center' }}>
-                Establishing secure connection…
-              </p>
-            )}
-            {searching && (
-              <div className="searching-status">
-                <div className="spinner" /> Searching for a partner…
+          </div>
+        </aside>
+
+        <main className="main-content">
+          {activeTab === 'settings' ? (
+            <div className="settings-section">
+              <div className="friends-management">
+                {/* Friend Requests Section */}
+                <div className="section-header">
+                  <h2>Friend Requests</h2>
+                  <span className="request-count">{pendingRequests.length} pending</span>
+                </div>
+                
+                <div className="requests-list">
+                  {pendingRequests.map((request) => (
+                    <div key={request.id} className="request-item">
+                      <div className="request-info">
+                        <span className="requester-email">{request.fromEmail}</span>
+                        <span className="request-time">
+                          {new Date(request.timestamp).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <div className="request-actions">
+                        <button className="accept-btn"
+                          onClick={() => handleAcceptRequest(request.id, {
+                            uid: request.from,
+                            email: request.fromEmail
+                          })}>
+                          Accept
+                        </button>
+                        <button className="decline-btn"
+                          onClick={() => handleDeclineRequest(request.id, request.from)}>
+                          Decline
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {pendingRequests.length === 0 && (
+                    <p className="no-requests">No pending friend requests</p>
+                  )}
+                </div>
+
+                {/* Friends List Section */}
+                <div className="section-header">
+                  <h2>Friends List</h2>
+                  <div className="friends-stats">
+                    <span className="total-friends">{friendsData.total} total</span>
+                    <span className="online-friends">{friendsData.online} online</span>
+                  </div>
+                </div>
+                
+                <div className="friends-list">
+                  {friendsData.list.map((friend) => (
+                    <div key={friend.id} className="friend-item">
+                      <div className="friend-info">
+                        <div className="friend-primary">
+                          <span className={`status-dot ${friend.isOnline ? 'online' : 'offline'}`} />
+                          <span className="friend-email">{friend.email}</span>
+                        </div>
+                        <span className="friend-since">
+                          Added {new Date(friend.addedAt).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <button className="remove-friend-btn"
+                        onClick={() => handleRemoveFriend(friend.id, friend.email)}>
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                  {friendsData.total === 0 && (
+                    <p className="no-friends">You haven't added any friends yet</p>
+                  )}
+                </div>
               </div>
-            )}
-          </section>
-        )}
-        {activeTab === 'text' && (
-          <TextChat
-            pendingRequests={pendingReqs}
-            friendsData={friendsData}
-          />
-        )}
-        {activeTab === 'settings' && (
-          <SettingsPanel
-            pendingReqs={pendingReqs}
-            friendsData={friendsData}
-            onAccept={(id, from) => handleAccept(id, from)}
-            onDecline={(id, from) => handleDecline(id, from)}
-            onRemoveFriend={(fid, email) => handleRemoveFriend(fid, email)}
-          />
-        )}
-      </main>
-    </div>
-  );
-}
-
-/* Settings Panel Inline Sub-component */
-function SettingsPanel({
-  pendingReqs, friendsData, onAccept, onDecline, onRemoveFriend
-}) {
-  return (
-    <div className="settings-section">
-      <div className="friends-management">
-        <h2>Friend Requests</h2>
-        {pendingReqs.length ? pendingReqs.map((r) => (
-          <div key={r.id} className="request-item">
-            <span className="requester-email">{r.email}</span>
-            <div className="request-actions">
-              <button onClick={() => onAccept(r.id, r)}>Accept</button>
-              <button onClick={() => onDecline(r.id, r.uid)}>Decline</button>
             </div>
-          </div>
-        )) : <p className="no-requests">No pending requests</p>}
+          ) : activeTab === 'video' ? (
+            <div className="video-chat-section">
+              <div className="video-container">
+                <video ref={localVideoRef} autoPlay muted playsInline className="local-video" />
+                <video ref={remoteVideoRef} autoPlay playsInline className="remote-video" />
+              </div>
+              <div className="controls">
+                {isConnecting ? (
+                  <div className="connecting-status">
+                    <div className="spinner"></div>
+                    <p>Establishing connection...</p>
+                  </div>
+                ) : !searching ? (
+                  <button className="find-stranger-btn" onClick={findStranger}>
+                    Find Random Partner
+                  </button>
+                ) : (
+                  <button className="cancel-search-btn" onClick={() => disconnectFromCall()}>
+                    Cancel Search
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : activeTab === 'text' ? (
+            <TextChat />
+          ) : null}
+        </main>
       </div>
-      <div className="friends-management">
-        <h2>Friends</h2>
-        {friendsData.list.length ? friendsData.list.map((f) => (
-          <div key={f.id} className="friend-item">
-            <span className="friend-email">
-              <span className={`status-dot ${f.isOnline ? 'online' : 'offline'}`} />
-              {f.email}
-            </span>
-            <button onClick={() => onRemoveFriend(f.id, f.email)}>Remove</button>
-          </div>
-        )) : <p className="no-friends">You have no friends yet.</p>}
-      </div>
-    </div>
-  );
-}
+    );
+  }
 
-export default Dashboard;
+
+
+  export default Dashboard;
