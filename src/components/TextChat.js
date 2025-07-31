@@ -9,6 +9,7 @@ import {
   onValue,
   onDisconnect,
   push,
+  runTransaction, // Added runTransaction import
 } from 'firebase/database';
 import './TextChat.css';
 import lightIcon from './light-icon.png';
@@ -107,8 +108,10 @@ function TextChat() {
   }, [endChat]);
 
   const findStranger = async () => {
+    if (!uid) return;
     setIsSearching(true);
     setSearchCanceled(false);
+
     const myWaitRef = ref(db, `textchat/waiting/${uid}`);
     await set(myWaitRef, { timestamp: Date.now() });
     onDisconnect(myWaitRef).remove();
@@ -122,73 +125,50 @@ function TextChat() {
       const userIds = Object.keys(waitingUsers).filter((id) => id !== uid);
       if (userIds.length === 0) return;
 
-      let partnerId = null;
+      // Get a random user from the waiting list
+      const partnerId = userIds[Math.floor(Math.random() * userIds.length)];
 
-      for (const id of userIds) {
-        const partnerChatSnap = await get(ref(db, `textchat/users/${id}/currentChat`));
-        const partnerChat = partnerChatSnap.val();
-        if (!partnerChat) {
-          partnerId = id;
-          break;
+      // Transaction to ensure atomicity
+      const matchRef = ref(db, `textchat/matches/${[uid, partnerId].sort().join('_')}`);
+      const { committed } = await runTransaction(matchRef, (currentData) => {
+        if (currentData === null) {
+          return {
+            user1: uid,
+            user2: partnerId,
+            timestamp: Date.now(),
+          };
         }
+        return; // Abort transaction
+      });
+
+      if (committed) {
+        const roomId = [uid, partnerId].sort().join('_');
+        
+        await Promise.all([
+          remove(ref(db, `textchat/waiting/${uid}`)),
+          remove(ref(db, `textchat/waiting/${partnerId}`)),
+        ]);
+
+        await update(ref(db), {
+          [`textchat/users/${uid}/currentChat`]: roomId,
+          [`textchat/users/${partnerId}/currentChat`]: roomId,
+        });
+
+        setChatId(roomId);
+        setStranger(partnerId);
+        setIsSearching(false);
+
+        // Cleanup listeners and timeouts
+        unsubscribe();
+        clearTimeout(timeoutId);
       }
-
-      if (!partnerId) return;
-
-      const myChatSnap = await get(ref(db, `textchat/users/${uid}/currentChat`));
-      if (myChatSnap.exists()) return;
-
-      const roomId = [uid, partnerId].sort().join('_');
-
-      await Promise.all([
-        remove(ref(db, `textchat/waiting/${uid}`)),
-        remove(ref(db, `textchat/waiting/${partnerId}`)),
-      ]);
-
-      await set(ref(db, `textchat/matches/${roomId}`), {
-        user1: uid,
-        user2: partnerId,
-        timestamp: Date.now(),
-      });
-
-      await update(ref(db), {
-        [`textchat/users/${uid}/currentChat`]: roomId,
-        [`textchat/users/${partnerId}/currentChat`]: roomId,
-      });
-
-      setChatId(roomId);
-      setStranger(partnerId);
-      setIsSearching(false);
-
-      const chatRef = ref(db, `textchat/chats/${roomId}/messages`);
-      onValue(chatRef, (snapshot) => {
-        const msgs = snapshot.val();
-        if (msgs) {
-          const sorted = Object.values(msgs).sort((a, b) => a.timestamp - b.timestamp);
-          setMessages(sorted);
-        }
-      });
-
-      const typingRef = ref(db, `textchat/chats/${roomId}/typing/${partnerId}`);
-      onValue(typingRef, (snapshot) => {
-        setStrangerIsTyping(snapshot.val() || false);
-      });
-
-      unsubscribe();
-      clearTimeout(timeoutId);
     });
 
-    const timeoutId = setTimeout(async () => {
-      const canceledSnap = await get(ref(db, `textchat/waiting/${uid}`));
-      const isStillWaiting = canceledSnap.exists();
-
-      if (isStillWaiting) {
-        unsubscribe();
-        await remove(myWaitRef);
-        setIsSearching(false);
-        setSearchCanceled(false); // reset state
-
-        // Only show alert if user didn't click "Cancel"
+    const timeoutId = setTimeout(() => {
+      unsubscribe();
+      remove(myWaitRef);
+      setIsSearching(false);
+      if (!searchCanceled) {
         alert('No match found, try again.');
       }
     }, 15000);
