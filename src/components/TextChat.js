@@ -178,11 +178,17 @@ function TextChat() {
       clearTimeout(timeoutId);
     });
 
-    const timeoutId = setTimeout(() => {
-      unsubscribe();
-      remove(myWaitRef);
-      setIsSearching(false);
-      if (!searchCanceled) {
+    const timeoutId = setTimeout(async () => {
+      const canceledSnap = await get(ref(db, `textchat/waiting/${uid}`));
+      const isStillWaiting = canceledSnap.exists();
+
+      if (isStillWaiting) {
+        unsubscribe();
+        await remove(myWaitRef);
+        setIsSearching(false);
+        setSearchCanceled(false); // reset state
+
+        // Only show alert if user didn't click "Cancel"
         alert('No match found, try again.');
       }
     }, 15000);

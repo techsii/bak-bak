@@ -211,7 +211,7 @@ function Home() {
             <li><a href="/#features">Features</a></li>
             <li><a href="/#trusted">Community</a></li>
             <li><a href="/#testimonials">Reviews</a></li>
-            <li><a href="/#cta">Start Chat</a></li>
+            <li><a href="/#cta">Join BakBak</a></li>
           </ul>
           {!isAuthenticated ? (
             <Link to="/login" className="navbar-login" aria-label="Login">Login</Link>
