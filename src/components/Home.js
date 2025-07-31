@@ -5,6 +5,7 @@ import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { ref, get, onValue, update } from 'firebase/database';
 import './Home.css';
 import NotificationPopup from './NotificationPopup';
+import liveIcon from './live-icon.png';
 
 function Home() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -174,8 +175,8 @@ function Home() {
     <div className="App">
       <nav className="navbar" aria-label="Main navigation" ref={navRef}>
         <div className="navbar-left">
-          <div className="navbar-brand" aria-label="Homepage">
-            <span className="logo-icon" role="img" aria-label="Chat Icon">🗨️</span>
+        <div className="navbar-brand" aria-label="Homepage">
+            <img src={liveIcon} alt="Live Icon" className="logo-icon-img" />
             <span className="logo-text">bakbak </span>
           </div>
 
@@ -320,7 +321,7 @@ function Home() {
       <footer className="footer">
         <div className="footer-container">
           <div className="footer-brand">
-            <span className="logo-icon">🗨️</span>
+            <img src={liveIcon} alt="Live Icon" className="logo-icon-img" />
             <span className="logo-text">bakbak</span>
           </div>
           <div className="footer-links">

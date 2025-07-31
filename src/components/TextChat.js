@@ -11,6 +11,8 @@ import {
   push,
 } from 'firebase/database';
 import './TextChat.css';
+import lightIcon from './light-icon.png';
+import sendIcon from './send.png';
 
 function TextChat() {
   const [isSearching, setIsSearching] = useState(false);
@@ -229,8 +231,8 @@ function TextChat() {
       {!chatId && !isSearching && (
         <div className="chat-controls">
           <button className="start-chat-btn" onClick={findStranger}>
-            <span className="btn-icon">👋</span>
-            Start Random Chat
+            <img src={lightIcon} alt="Light Icon" className="btn-icon-img" />
+             Random Chat
           </button>
         </div>
       )}
@@ -242,8 +244,7 @@ function TextChat() {
             <p>Looking for someone to chat with...</p>
           </div>
           <button onClick={stopSearching} className="stop-search-btn">
-            <span className="btn-icon">✕</span>
-            Cancel Search
+            Cancel
           </button>
         </div>
       )}
@@ -277,7 +278,9 @@ function TextChat() {
               onKeyDown={handleKeyDown}
               placeholder="Type a message..."
             />
-            <button onClick={sendMessage}>Send</button>
+            <button onClick={sendMessage} className="send-button">
+              <img src={sendIcon} alt="Send" className="send-icon-img" />
+            </button>
           </div>
 
           <button className="end-chat" onClick={endChat}>

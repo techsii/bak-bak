@@ -1,14 +1,21 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-  import { Link } from 'react-router-dom';
+  import { Link, useNavigate } from 'react-router-dom';
   import { auth, db } from '../firebase/config';
   import { ref, get, set, onValue, update, serverTimestamp, onDisconnect } from 'firebase/database';
   import './Dashboard.css';
   import AccountIcon from './AccountIcon'; // adjust the path if it's in a different folder
   import TextChat from './TextChat';
+  import backIcon from './back-icon.png';
+  import chatIcon from './chat-icon.png';
+  import videoIcon from './video-icon.png';
+import settingsIcon from './settings-icon.png';
+import signoutIcon from './signout-icon.png';
+import liveIcon from './live-icon.png'; // Assuming you have a live icon for the live chat feature
 
-  function Dashboard() {
-    const [userData, setUserData] = useState(null);
-    const [loading, setLoading] = useState(true);
+function Dashboard() {
+  const navigate = useNavigate();
+  const [userData, setUserData] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
     const [connectionId, setConnectionId] = useState(null);
     const [isConnecting, setIsConnecting] = useState(false);
@@ -24,12 +31,6 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
   const remoteVideoRef = useRef();
   const peerConnectionRef = useRef();
 
-  const configuration = {
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' }
-      ]
-    };
 
     const requestCameraAndMic = async () => {
       try {
@@ -177,6 +178,12 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
     }, [connectionId]);
 
     const createPeerConnection = useCallback((disconnectCb) => {
+      const configuration = {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' }
+        ]
+      };
       const pc = new RTCPeerConnection(configuration);
 
       pc.oniceconnectionstatechange = () => {
@@ -206,7 +213,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
       };
 
       return pc;
-    }, [connectionId, configuration]);
+    }, [connectionId]);
 
     const findStranger = async () => {
       try {
@@ -478,6 +485,15 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
       }
     };
 
+    const handleSignOut = async () => {
+      try {
+        await auth.signOut();
+        navigate('/');
+      } catch (error) {
+        console.error('Error signing out:', error);
+      }
+    };
+
     if (loading) return <div className="dashboard-loading">Loading...</div>;
     if (!userData) return <div className="dashboard-error">No user data found</div>;
 
@@ -485,7 +501,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
       <div className="dashboard-container">
         <aside className="dashboard-sidebar">
           <div className="sidebar-logo">
-            <span className="logo-icon">💬</span>
+            <img src={liveIcon} alt="Settings" className="nav-icon" />
             <span>RandomChat</span>
           </div>
          {userData && (
@@ -498,22 +514,40 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
           <nav>
             <ul className="nav-menu">
               <li className="nav-item">
-                <Link to="/" className="nav-link"><span>⬅️</span> Back</Link>
+                <Link to="/" className="nav-link">
+                  <img src={backIcon} alt="Back" className="nav-icon" />
+                  <span>Back</span>
+                </Link>
               </li>
               <li className="nav-item">
                 <a href="/dashboard/video" className={`nav-link ${activeTab === 'video' ? 'active' : ''}`} 
-                  onClick={(e) => { e.preventDefault(); setActiveTab('video'); }}><span>🎥</span> Video Chat</a>
+                  onClick={(e) => { e.preventDefault(); setActiveTab('video'); }}>
+                  <img src={videoIcon} alt="Video Chat" className="nav-icon" />
+                  <span>Video Chat</span>
+                </a>
               </li>
               <li className="nav-item">
                 <a href="/dashboard/text" className={`nav-link ${activeTab === 'text' ? 'active' : ''}`}
-                  onClick={(e) => { e.preventDefault(); setActiveTab('text'); }}><span>💭</span> Text Chat</a>
+                  onClick={(e) => { e.preventDefault(); setActiveTab('text'); }}>
+                  <img src={chatIcon} alt="Text Chat" className="nav-icon" />
+                  <span>Text Chat</span>
+                </a>
               </li>
               <li className="nav-item">
                 <a href="/dashboard/settings" className={`nav-link ${activeTab === 'settings' ? 'active' : ''}`}
-                  onClick={(e) => { e.preventDefault(); setActiveTab('settings'); }}><span>⚙️</span> Settings</a>
+                  onClick={(e) => { e.preventDefault(); setActiveTab('settings'); }}>
+                  <img src={settingsIcon} alt="Settings" className="nav-icon" />
+                  <span>Settings</span>
+                </a>
               </li>
             </ul>
           </nav>
+          <div className="sidebar-footer">
+            <button onClick={handleSignOut} className="nav-link">
+              <img src={signoutIcon} alt="Sign Out" className="nav-icon" />
+              <span>Sign Out</span>
+            </button>
+          </div>
         </aside>
 
         <main className="main-content">

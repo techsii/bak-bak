@@ -304,6 +304,12 @@ body {
   font-size: 1.2rem;
 }
 
+.btn-icon-img {
+  width: 20px;
+  height: 20px;
+  margin-right: 8px; /* Add some spacing between the icon and text */
+}
+
 /* ===== ANIMATION ===== */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(10px); }
@@ -509,84 +515,109 @@ body {
   }
 }
 
-/* High DPI Screens */
-@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
-  .message-text {
-    text-rendering: optimizeLegibility;
-    -webkit-font-smoothing: antialiased;
+  /* High DPI Screens */
+  @media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+    .message-text {
+      text-rendering: optimizeLegibility;
+      -webkit-font-smoothing: antialiased;
+    }
   }
+
+  /* Support for Dark Mode */
+  @media (prefers-color-scheme: dark) {
+    .message-text {
+      background: var(--secondary-bg);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+  }
+
+  /* Realme 13+ 5G Specific Styles */
+  @media screen and (max-width: 1080px) and (max-height: 2400px) and (-webkit-device-pixel-ratio: 2.75) {
+    .text-chat-container {
+      height: 100vh;
+      margin: 0;
+      border-radius: 0;
+      max-width: 100%;
+    }
+
+    .chat-window {
+      padding: 12px;
+      gap: 8px;
+    }
+
+    .message-row {
+      max-width: 82%;
+      gap: 4px;
+    }
+
+    .message-text {
+      font-size: 1rem;
+      padding: 10px 16px;
+      line-height: 1.4;
+      border-radius: 18px;
+    }
+
+    .sender-label {
+      font-size: 0.9rem;
+      padding-left: 10px;
+    }
+
+    .message-input {
+      padding: 12px;
+      gap: 10px;
+    }
+
+    .message-input input {
+      padding: 14px 18px;
+      font-size: 1rem;
+      border-radius: 24px;
+    }
+
+    .message-input button {
+      padding: 14px 24px;
+      font-size: 1rem;
+      border-radius: 24px;
+    }
+
+    /* Improve touch targets */
+    .control-button {
+      min-height: 48px;
+      font-size: 1rem;
+    }
+
+    /* Optimized scrollbar for high DPI */
+    .chat-window::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    /* Better text rendering for OLED */
+    * {
+      text-rendering: optimizeLegibility;
+      -webkit-font-smoothing: antialiased;
+    }
+  }
+
+/* Styles for the send button and icon */
+.send-button {
+  padding: 12px 16px;
+  border-radius: 25px;
+  border: none;
+  background: var(--accent-blue);
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-/* Support for Dark Mode */
-@media (prefers-color-scheme: dark) {
-  .message-text {
-    background: var(--secondary-bg);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-  }
+.send-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
 }
 
-/* Realme 13+ 5G Specific Styles */
-@media screen and (max-width: 1080px) and (max-height: 2400px) and (-webkit-device-pixel-ratio: 2.75) {
-  .text-chat-container {
-    height: 100vh;
-    margin: 0;
-    border-radius: 0;
-    max-width: 100%;
-  }
-
-  .chat-window {
-    padding: 12px;
-    gap: 8px;
-  }
-
-  .message-row {
-    max-width: 82%;
-    gap: 4px;
-  }
-
-  .message-text {
-    font-size: 1rem;
-    padding: 10px 16px;
-    line-height: 1.4;
-    border-radius: 18px;
-  }
-
-  .sender-label {
-    font-size: 0.9rem;
-    padding-left: 10px;
-  }
-
-  .message-input {
-    padding: 12px;
-    gap: 10px;
-  }
-
-  .message-input input {
-    padding: 14px 18px;
-    font-size: 1rem;
-    border-radius: 24px;
-  }
-
-  .message-input button {
-    padding: 14px 24px;
-    font-size: 1rem;
-    border-radius: 24px;
-  }
-
-  /* Improve touch targets */
-  .control-button {
-    min-height: 48px;
-    font-size: 1rem;
-  }
-
-  /* Optimized scrollbar for high DPI */
-  .chat-window::-webkit-scrollbar {
-    width: 4px;
-  }
-
-  /* Better text rendering for OLED */
-  * {
-    text-rendering: optimizeLegibility;
-    -webkit-font-smoothing: antialiased;
-  }
+.send-icon-img {
+  width: 20px;
+  height: 20px;
 }
