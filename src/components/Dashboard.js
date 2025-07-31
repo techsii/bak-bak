@@ -18,21 +18,22 @@ import settingsIcon  from './settings-icon.png';
 import signoutIcon   from './signout-icon.png';
 import liveIcon      from './live-icon.png';
 
+
 function Dashboard() {
-  const navigate             = useNavigate();
-  const [userData, setUserData]     = useState(null);
-  const [loading, setLoading]       = useState(true);
-  const [searching, setSearching]   = useState(false);
+  const navigate = useNavigate();
+  const [userData, setUserData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [searching, setSearching] = useState(false);
   const [connectionId, setConnectionId] = useState(null);
   const [isConnecting, setIsConnecting] = useState(false);
-  const [activeTab, setActiveTab]        = useState('video');
-  const [pendingReqs, setPendingReqs]    = useState([]);
-  const [friendsData, setFriendsData]    = useState({ total: 0, online: 0, list: [] });
-  const [onlineCount, setOnlineCount]    = useState(0);
+  const [activeTab, setActiveTab] = useState('video');
+  const [pendingReqs, setPendingReqs] = useState([]);
+  const [friendsData, setFriendsData] = useState({ total: 0, online: 0, list: [] });
+  const [onlineCount, setOnlineCount] = useState(0);
 
-  const localVideoRef           = useRef(null);
-  const remoteVideoRef          = useRef(null);
-  const peerConnectionRef       = useRef(null);
+  const localVideoRef = useRef(null);
+  const remoteVideoRef = useRef(null);
+  const peerConnectionRef = useRef(null);
 
   // ICE Server configuration
   const rtcConfig = useMemo(() => ({
@@ -52,11 +53,69 @@ function Dashboard() {
     });
   }, []);
 
+  // Fetch user profile on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const snap = await get(ref(db, `users/${auth.currentUser?.uid}`));
+        if (snap.exists()) setUserData(snap.val());
+      } finally { setLoading(false); }
+    })();
+  }, []);
+
+  // Friend requests listener
+  useEffect(() => {
+    if (!auth.currentUser) return undefined;
+    const reqRef = ref(db, `friendRequests/${auth.currentUser.uid}`);
+    return onValue(reqRef, (snap) => {
+      const all = snap.val() || {};
+      const pending = Object.entries(all).filter(([, v]) => v.status === 'pending')
+        .map(([id, v]) => ({ id, ...v }));
+      setPendingReqs(pending);
+    });
+  }, []);
+
+  // Friends list & online status
+  useEffect(() => {
+    if (!auth.currentUser) return undefined;
+    const friendsRef = ref(db, `friends/${auth.currentUser.uid}`);
+    return onValue(friendsRef, async (snap) => {
+      const friends = snap.val() || {};
+      const list = [];
+      let online = 0;
+      await Promise.all(Object.entries(friends).map(async ([fid, data]) => {
+        const sSnap = await get(ref(db, `status/${fid}`));
+        const isOnline = sSnap.exists() && sSnap.val().online;
+        if (isOnline) online += 1;
+        list.push({ ...data, id: fid, isOnline });
+      }));
+      list.sort((a, b) => b.addedAt - a.addedAt);
+      setFriendsData({ total: list.length, online, list });
+    });
+  }, []);
+
+  // Clean up on unmount
+  useEffect(() => () => { disconnectFromCall(); }, []);
+
+  // Mark presence in .info/connected
+  useEffect(() => {
+    if (!auth.currentUser) return undefined;
+    const statusRef = ref(db, `status/${auth.currentUser.uid}`);
+    const connRef   = ref(db, '.info/connected');
+    const unsub = onValue(connRef, (snap) => {
+      if (snap.val() === true) {
+        set(statusRef, { online: true, lastSeen: serverTimestamp() });
+        onDisconnect(statusRef).set({ online: false, lastSeen: serverTimestamp() });
+      }
+    });
+    return () => { unsub(); set(statusRef, { online: false, lastSeen: serverTimestamp() }); };
+  }, []);
+
   // --- HELPER: Get camera & mic with error handling
   const requestCameraAndMic = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      stream.getTracks().forEach((t) => 
+      stream.getTracks().forEach((t) =>
         t.addEventListener('ended', () => {
           alert(`${t.kind} track ended – reconnecting…`);
           disconnectFromCall();
@@ -116,7 +175,6 @@ function Dashboard() {
         peerConnectionRef.current.close();
         peerConnectionRef.current = null;
       }
-
       [localVideoRef, remoteVideoRef].forEach((vRef) => {
         if (vRef.current?.srcObject) {
           vRef.current.srcObject.getTracks().forEach((t) => t.stop());
@@ -125,9 +183,7 @@ function Dashboard() {
       });
 
       if (auth.currentUser) {
-        const updates = {
-          [`available/${auth.currentUser.uid}`]: null,
-        };
+        const updates = { [`available/${auth.currentUser.uid}`]: null };
         if (connectionId) updates[`connections/${connectionId}`] = null;
         await update(ref(db), updates);
       }
@@ -135,65 +191,7 @@ function Dashboard() {
     } catch (err) { console.error('disconnectFromCall error:', err); }
   }, [connectionId]);
 
-  // --- Fetch user profile on mount
-  useEffect(() => {
-    (async () => {
-      try {
-        const snap = await get(ref(db, `users/${auth.currentUser?.uid}`));
-        if (snap.exists()) setUserData(snap.val());
-      } finally { setLoading(false); }
-    })();
-  }, []);
-
-  // --- Friend requests listener
-  useEffect(() => {
-    if (!auth.currentUser) return undefined;
-    const reqRef = ref(db, `friendRequests/${auth.currentUser.uid}`);
-    return onValue(reqRef, (snap) => {
-      const all = snap.val() || {};
-      const pending = Object.entries(all).filter(([, v]) => v.status === 'pending')
-        .map(([id, v]) => ({ id, ...v }));
-      setPendingReqs(pending);
-    });
-  }, []);
-
-  // --- Friends list & online status
-  useEffect(() => {
-    if (!auth.currentUser) return undefined;
-    const friendsRef = ref(db, `friends/${auth.currentUser.uid}`);
-    return onValue(friendsRef, async (snap) => {
-      const friends = snap.val() || {};
-      const list = [];
-      let online = 0;
-      await Promise.all(Object.entries(friends).map(async ([fid, data]) => {
-        const sSnap = await get(ref(db, `status/${fid}`));
-        const isOnline = sSnap.exists() && sSnap.val().online;
-        if (isOnline) online += 1;
-        list.push({ ...data, id: fid, isOnline });
-      }));
-      list.sort((a, b) => b.addedAt - a.addedAt);
-      setFriendsData({ total: list.length, online, list });
-    });
-  }, []);
-
-  useEffect(() => () => { disconnectFromCall(); }, [disconnectFromCall]);
-
-  // Mark presence in .info/connected
-  useEffect(() => {
-    if (!auth.currentUser) return undefined;
-    const statusRef = ref(db, `status/${auth.currentUser.uid}`);
-    const connRef   = ref(db, '.info/connected');
-
-    const unsub = onValue(connRef, (snap) => {
-      if (snap.val() === true) {
-        set(statusRef, { online: true, lastSeen: serverTimestamp() });
-        onDisconnect(statusRef).set({ online: false, lastSeen: serverTimestamp() });
-      }
-    });
-    return () => { unsub(); set(statusRef, { online: false, lastSeen: serverTimestamp() }); };
-  }, []);
-
-  // --- CORE LOGIC: Find Stranger (only if 2+ available)
+  // --- Find Stranger with timeout
   const findStranger = async () => {
     await disconnectFromCall();
     setSearching(true);
@@ -205,21 +203,30 @@ function Dashboard() {
     const myAvailRef = ref(db, `available/${auth.currentUser.uid}`);
     await set(myAvailRef, { uid: auth.currentUser.uid, ts: Date.now(), matched: false });
 
-    // Wait for at least TWO available people before matching
+    // Timeout: abort after 30 seconds if no match
+    let timedOut = false;
+    const TIMEOUT_MS = 30000;
+    let timeoutId = setTimeout(() => {
+      timedOut = true;
+      setSearching(false);
+      disconnectFromCall();
+      alert('No match found. Try again later!');
+    }, TIMEOUT_MS);
+
+    // Matchmaking
     const availRef = ref(db, 'available');
     const stop = onValue(availRef, async (snap) => {
+      if (timedOut) return;
+
       const all = snap.val() || {};
-      const candidateEntries = Object.entries(all).filter(([uid, data]) => (
-        !data.matched
-      ));
-      if (candidateEntries.length < 2) return; // Need at least two available!
-
-      const myEntry = candidateEntries.find(([uid]) => uid === auth.currentUser.uid);
-      const others   = candidateEntries.filter(([uid]) => uid !== auth.currentUser.uid);
-
-      if (!others.length) return; // No one else to match with yet
+      const candidateEntries = Object.entries(all).filter(([uid, data]) => !data.matched);
+      if (candidateEntries.length < 2) return;
+      const others = candidateEntries.filter(([uid]) => uid !== auth.currentUser.uid);
+      if (!others.length) return;
 
       stop();
+      clearTimeout(timeoutId);
+      setSearching(false);
 
       const [partnerId] = others[Math.floor(Math.random() * others.length)];
       const cid = [auth.currentUser.uid, partnerId].sort().join('_');
@@ -265,7 +272,6 @@ function Dashboard() {
         ));
       });
 
-      setSearching(false);
       setIsConnecting(false);
     } catch (err) {
       setIsConnecting(false);
@@ -309,7 +315,7 @@ function Dashboard() {
     });
   }, [connectionId, createPeerConnection]);
 
-  // --- FRIENDS/REQUESTS HANDLERS
+  // --- FRIENDS/REQUESTS HANDLERS (unchanged)
   async function handleAccept(reqId, fromUser) {
     const up = {
       [`friendRequests/${auth.currentUser.uid}/${reqId}`]          : null,
@@ -353,7 +359,6 @@ function Dashboard() {
 
   return (
     <div className="dashboard-container">
-      {/* --- Sidebar --- */}
       <aside className="dashboard-sidebar">
         <div className="sidebar-logo">
           <img src={liveIcon} alt="Settings" className="nav-icon" />
@@ -394,7 +399,6 @@ function Dashboard() {
           </button>
         </div>
       </aside>
-      {/* --- Main Content --- */}
       <main className="main-content">
         {activeTab === 'video' && (
           <section className="video-chat-section">
