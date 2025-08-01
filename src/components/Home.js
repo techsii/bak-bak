@@ -301,19 +301,6 @@ function Home() {
         )}
       </header>
 
-      {/* Trust Indicators */}
-      <section className="trust-section">
-        <div className="container">
-          <p className="trust-text">Trusted by leading communities worldwide</p>
-          <div className="trust-logos">
-            <div className="trust-logo">TechCrunch</div>
-            <div className="trust-logo">Forbes</div>
-            <div className="trust-logo">Wired</div>
-            <div className="trust-logo">The Verge</div>
-            <div className="trust-logo">Mashable</div>
-          </div>
-        </div>
-      </section>
 
       {/* How It Works Section */}
       <section className="how-it-works" id="how-it-works">
