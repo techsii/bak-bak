@@ -337,46 +337,6 @@ function Dashboard() {
     }, []);
 
     useEffect(() => {
-        if (!auth.currentUser) return;
-
-        const connectionsRef = ref(db, 'connections');
-        const unsubscribe = onValue(connectionsRef, async (snapshot) => {
-            const connections = snapshot.val() || {};
-            for (const connId in connections) {
-                const connection = connections[connId];
-                if (connection.participants.includes(auth.currentUser.uid) && connection.offer) {
-                    const pc = createPeerConnection(disconnectFromCall);
-                    peerConnectionRef.current = pc;
-                    setConnectionId(connId);
-
-                    const stream = await requestCameraAndMic();
-                    localVideoRef.current.srcObject = stream;
-                    stream.getTracks().forEach(track => pc.addTrack(track, stream));
-
-                    await pc.setRemoteDescription(new RTCSessionDescription(connection.offer));
-                    const answer = await pc.createAnswer();
-                    await pc.setLocalDescription(answer);
-
-                    await set(ref(db, `connections/${connId}/answer`), {
-                        sdp: answer.sdp,
-                        type: answer.type
-                    });
-
-                    const partnerId = connection.participants.find(p => p !== auth.currentUser.uid);
-                    onValue(ref(db, `connections/${connId}/candidates/${partnerId}`), (snapshot) => {
-                        const candidate = snapshot.val();
-                        if (candidate) {
-                            pc.addIceCandidate(new RTCIceCandidate(candidate));
-                        }
-                    });
-                }
-            }
-        });
-
-        return () => unsubscribe();
-    }, [createPeerConnection]);
-
-    useEffect(() => {
       const userStatusRef = ref(db, `status/${auth.currentUser?.uid}`);
 
       const connectedRef = ref(db, '.info/connected');
@@ -494,8 +454,8 @@ function Dashboard() {
       }
     };
 
-    if (loading) return <div className="dashboard-loading">Loading...</div>;
-    if (!userData) return <div className="dashboard-error">No user data found</div>;
+    // Removed the initial loading check here as the user wants to remove the preloader.
+    // The component will now render directly, and if userData is not available, it will show the error.
 
     return (
       <div className="dashboard-container">
