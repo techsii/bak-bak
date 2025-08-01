@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '../firebase/config';
@@ -12,6 +12,27 @@ function Login() {
   });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [loadingStep, setLoadingStep] = useState(0);
+
+  const loadingMessages = [
+    "Authenticating credentials",
+    "Establishing secure connection",
+    "Loading user profile",
+    "Preparing dashboard"
+  ];
+
+  // Dynamic loading steps effect
+  useEffect(() => {
+    if (isLoading) {
+      const interval = setInterval(() => {
+        setLoadingStep(prev => (prev + 1) % loadingMessages.length);
+      }, 800);
+      
+      return () => clearInterval(interval);
+    } else {
+      setLoadingStep(0);
+    }
+  }, [isLoading, loadingMessages.length]);
 
   const handleChange = (e) => {
     setFormData({
@@ -64,6 +85,12 @@ function Login() {
         case 'auth/invalid-email':
           setError('Invalid email address');
           break;
+        case 'auth/invalid-credential':
+          setError('Invalid email or password');
+          break;
+        case 'auth/too-many-requests':
+          setError('Too many failed attempts. Please try again later.');
+          break;
         default:
           setError('Login failed. Please try again.');
       }
@@ -74,6 +101,9 @@ function Login() {
 
   return (
     <div className="login-container">
+      {/* Floating 3D geometry elements */}
+      <div className="floating-geometry"></div>
+      
       <div className="login-wrapper">
         <div className="login-header">
           <Link to="/" className="back-to-home">
@@ -88,8 +118,37 @@ function Login() {
 
         {isLoading ? (
           <div className="preloader">
-            <div className="spinner"></div>
-            <div className="preloader-text">Connecting to dashboard...</div>
+            <div className="spinner">
+              <div className="inner-core"></div>
+              <div className="particle"></div>
+              <div className="particle"></div>
+              <div className="particle"></div>
+              <div className="particle"></div>
+              <div className="particle"></div>
+              <div className="particle"></div>
+            </div>
+            
+            <div className="progress-container">
+              <div className="progress-bar"></div>
+            </div>
+            
+            <div className="preloader-text">
+              {loadingMessages[loadingStep]}
+            </div>
+            
+            <div className="loading-steps">
+              {loadingMessages.map((message, index) => (
+                <div 
+                  key={index}
+                  className={`loading-step ${
+                    index === loadingStep ? 'active' : 
+                    index < loadingStep ? 'completed' : ''
+                  }`}
+                >
+                  {message}
+                </div>
+              ))}
+            </div>
           </div>
         ) : (
           <>
@@ -107,7 +166,7 @@ function Login() {
                   </div>
                 )}
 
-                <div className="form-group">
+                <div className="form-group" data-type="email">
                   <label htmlFor="email">Email Address</label>
                   <input
                     type="email"
@@ -118,10 +177,11 @@ function Login() {
                     placeholder="Enter your email"
                     required
                     disabled={isLoading}
+                    autoComplete="email"
                   />
                 </div>
 
-                <div className="form-group">
+                <div className="form-group" data-type="password">
                   <label htmlFor="password">Password</label>
                   <input
                     type="password"
@@ -132,6 +192,7 @@ function Login() {
                     placeholder="Enter your password"
                     required
                     disabled={isLoading}
+                    autoComplete="current-password"
                   />
                 </div>
 
@@ -141,7 +202,9 @@ function Login() {
                     <span className="checkmark"></span>
                     Remember me
                   </label>
-                  <a href="/forgot-password" className="forgot-password">Forgot password?</a>
+                  <Link to="/forgot-password" className="forgot-password">
+                    Forgot password?
+                  </Link>
                 </div>
 
                 <button 
@@ -149,29 +212,27 @@ function Login() {
                   className="login-btn"
                   disabled={isLoading}
                 >
-                  Sign In
+                  {isLoading ? (
+                    <>
+                      <span className="spinner-circle"></span>
+                      Signing In...
+                    </>
+                  ) : (
+                    'Sign In'
+                  )}
                 </button>
               </form>
 
               <div className="login-footer">
-                <p>Don't have an account? <Link to="/register" className="signup-link">Sign up</Link></p>
+                <p>
+                  Don't have an account?{' '}
+                  <Link to="/register" className="signup-link">
+                    Sign up
+                  </Link>
+                </p>
               </div>
             </div>
 
-            <div className="login-features">
-              <div className="feature-item">
-                <span className="feature-icon">🔒</span>
-                <span>Secure Login</span>
-              </div>
-              <div className="feature-item">
-                <span className="feature-icon">⚡</span>
-                <span>Real-time Chat</span>
-              </div>
-              <div className="feature-item">
-                <span className="feature-icon">🎯</span>
-                <span>Interest Matching</span>
-              </div>
-            </div>
           </>
         )}
       </div>
