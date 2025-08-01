@@ -3,7 +3,6 @@ import { Link, useNavigate } from 'react-router-dom';
 import { auth, db } from '../firebase/config'; // Added db import
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { ref, get, onValue, update } from 'firebase/database';
-import './Home.css';
 import NotificationPopup from './NotificationPopup';
 import liveIcon from './live-icon.png';
 
@@ -208,17 +207,21 @@ function Home() {
 
         <div className="navbar-right">
           <ul className={`navbar-links ${isMenuOpen ? 'active' : ''}`}>
-            <li><a href="/#features">Features</a></li>
-            <li><a href="/#trusted">Community</a></li>
-            <li><a href="/#testimonials">Reviews</a></li>
-            <li><a href="/#cta">Join BakBak</a></li>
+            <li><a href="/#features" onClick={() => setIsMenuOpen(false)}>Features</a></li>
+            <li><a href="/#trusted" onClick={() => setIsMenuOpen(false)}>Community</a></li>
+            <li><a href="/#testimonials" onClick={() => setIsMenuOpen(false)}>Reviews</a></li>
+            <li><a href="/#cta" onClick={() => setIsMenuOpen(false)}>Join BakBak</a></li>
           </ul>
           {!isAuthenticated ? (
             <Link to="/login" className="navbar-login" aria-label="Login">Login</Link>
           ) : (
             <button onClick={handleLogout} className="navbar-login" aria-label="Logout">Logout</button>
           )}
-          <button className="menu-toggle" onClick={() => setIsMenuOpen(!isMenuOpen)} aria-label="Toggle menu">
+          <button 
+            className="menu-toggle" 
+            onClick={() => setIsMenuOpen(!isMenuOpen)}
+            aria-label="Toggle menu"
+          >
             ☰
           </button>
         </div>
