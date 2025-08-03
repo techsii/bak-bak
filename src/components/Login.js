@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
-import { auth } from '../firebase/config';
+import { auth, db } from '../firebase/config';
 import { registerWithGoogle } from '../services/userService';
+import { ref, get } from 'firebase/database';
 import './Login.css';
 
 function Login() {
@@ -107,20 +108,27 @@ function Login() {
       const provider = new GoogleAuthProvider();
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
-
-      const [firstName, ...lastNameParts] = user.displayName.split(' ');
-      const lastName = lastNameParts.join(' ');
-
-      const userData = {
-        uid: user.uid,
-        email: user.email,
-        firstName: firstName || '',
-        lastName: lastName || '',
-        phoneNumber: user.phoneNumber || '',
-      };
-
-      await registerWithGoogle(userData);
-
+  
+      // Check if user exists in the database
+      const userRef = ref(db, 'users/' + user.uid);
+      const snapshot = await get(userRef);
+  
+      if (!snapshot.exists()) {
+        // If user doesn't exist, register them
+        const [firstName, ...lastNameParts] = user.displayName.split(' ');
+        const lastName = lastNameParts.join(' ');
+  
+        const newUserDetails = {
+          uid: user.uid,
+          email: user.email,
+          firstName: firstName || '',
+          lastName: lastName || '',
+          phoneNumber: user.phoneNumber || '',
+        };
+        await registerWithGoogle(newUserDetails);
+      }
+  
+      // Proceed with login
       localStorage.setItem('user', JSON.stringify({
         uid: user.uid,
         email: user.email,
@@ -130,7 +138,7 @@ function Login() {
       if (user.accessToken) {
         localStorage.setItem('authToken', user.accessToken);
       }
-
+  
       navigate('/dashboard');
     } catch (error) {
       console.error('Google login error:', error);
